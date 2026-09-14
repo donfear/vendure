@@ -1,9 +1,8 @@
 import { ApolloServerPlugin, GraphQLRequestListener, GraphQLServerContext } from '@apollo/server';
-import { isObject } from '@vendure/common/lib/shared-utils';
-import { DocumentNode } from 'graphql';
 
 import { GraphqlValueTransformer } from '../common/graphql-value-transformer';
 import { IdCodecService } from '../common/id-codec.service';
+import { encodeIdsInResult } from '../common/result-transformers';
 
 /**
  * Encodes the ids of outgoing responses according to the configured EntityIdStrategy.
@@ -26,35 +25,15 @@ export class IdCodecPlugin implements ApolloServerPlugin {
                 if (document) {
                     const { body } = requestContext.response;
                     if (body.kind === 'single') {
-                        this.encodeIdFields(document, body.singleResult.data);
+                        encodeIdsInResult(
+                            this.graphqlValueTransformer,
+                            this.idCodecService,
+                            document,
+                            body.singleResult.data,
+                        );
                     }
                 }
             },
         };
-    }
-
-    private encodeIdFields(document: DocumentNode, data?: Record<string, unknown> | null) {
-        if (!data) {
-            return;
-        }
-        const typeTree = this.graphqlValueTransformer.getOutputTypeTree(document);
-        this.graphqlValueTransformer.transformValues(typeTree, data, (value, type) => {
-            const isIdType = type && type.name === 'ID';
-            if (type && type.name === 'JSON' && isObject(value)) {
-                return this.idCodecService.encode(value, [
-                    'paymentId',
-                    'fulfillmentId',
-                    'orderItemIds',
-                    'orderLineId',
-                    'promotionId',
-                    'refundId',
-                    'groupId',
-                    'modificationId',
-                    'previousCustomerId',
-                    'newCustomerId',
-                ]);
-            }
-            return isIdType ? this.idCodecService.encode(value) : value;
-        });
     }
 }
