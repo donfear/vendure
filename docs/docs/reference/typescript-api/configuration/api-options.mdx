@@ -2,7 +2,9 @@
 title: "ApiOptions"
 generated: true
 ---
-<GenerationInfo sourceFile="packages/core/src/config/vendure-config.ts" sourceLine="81" packageName="@vendure/core" />
+## ApiOptions
+
+<GenerationInfo sourceFile="packages/core/src/config/vendure-config.ts" sourceLine="82" packageName="@vendure/core" />
 
 The ApiOptions define how the Vendure GraphQL APIs are exposed, as well as allowing the API layer
 to be extended with middleware.
@@ -28,6 +30,7 @@ interface ApiOptions {
     trustProxy?: TrustProxyOptions;
     apolloServerPlugins?: ApolloServerPlugin[];
     introspection?: boolean;
+    subscriptions?: SubscriptionsOptions;
 }
 ```
 
@@ -220,6 +223,79 @@ will not work.
   introspection: process.env.NODE_ENV !== 'production'
 }
 ```
+### subscriptions
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/configuration/api-options#subscriptionsoptions'>SubscriptionsOptions</a>`} default={`{ enabled: false }`}  since="3.8.0"  />
+
+Configures the GraphQL subscriptions (WebSocket) transport.
+
+*Example*
+
+```ts
+const config: VendureConfig = {
+  apiOptions: {
+    subscriptions: {
+      enabled: true,
+    },
+  },
+};
+```
+
+
+</div>
+## SubscriptionsOptions
+
+<GenerationInfo sourceFile="packages/core/src/config/vendure-config.ts" sourceLine="339" packageName="@vendure/core" since="3.8.0" />
+
+Options controlling the GraphQL subscriptions (WebSocket) transport.
+
+```ts title="Signature"
+interface SubscriptionsOptions {
+    enabled?: boolean;
+    relayStrategy?: SubscriptionRelayStrategy;
+    maxSubscriptionsPerConnection?: number;
+    maxOperationSizeBytes?: number;
+}
+```
+
+<div className="members-wrapper">
+
+### enabled
+
+<MemberInfo kind="property" type={`boolean`} default={`false`}   />
+
+Whether to serve GraphQL subscriptions over WebSocket. The endpoint uses the same path as
+the corresponding GraphQL API, e.g. `ws://localhost:3000/admin-api`, and speaks the
+`graphql-transport-ws` protocol. When `false`, no WebSocket endpoint is created and any
+`subscription` operation sent over http is rejected during validation.
+
+A WebSocket upgrade request does not pass through the Express middleware stack, so
+`apiOptions.middleware` is not applied to subscriptions; only the session cookie and the
+i18n language detection are. The WebSocket server of each API is matched by path prefix, so
+neither `adminApiPath` nor `shopApiPath` may be a prefix of the other; the server refuses
+to start otherwise.
+### relayStrategy
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy'>SubscriptionRelayStrategy</a>`} default={`new <a href='/reference/typescript-api/subscriptions/in-memory-subscription-relay-strategy#inmemorysubscriptionrelaystrategy'>InMemorySubscriptionRelayStrategy</a>()`}   />
+
+Determines how a published subscription payload reaches the server instances which have
+subscribers. The default delivers within a single process; use the
+[RedisSubscriptionRelayStrategy](/reference/typescript-api/subscriptions/redis-subscription-relay-strategy#redissubscriptionrelaystrategy) for a multi-instance deployment, or when publishing
+from the worker process.
+### maxSubscriptionsPerConnection
+
+<MemberInfo kind="property" type={`number`} default={`20`}   />
+
+The maximum number of concurrent subscriptions a single WebSocket connection may hold. A
+subscribe operation beyond this limit is rejected with a `SUBSCRIPTION_LIMIT_EXCEEDED` error.
+### maxOperationSizeBytes
+
+<MemberInfo kind="property" type={`number`} default={`65536`}   />
+
+The maximum size in bytes of a single subscribe operation (query, variables and operation
+name). A larger operation is rejected with a `SUBSCRIPTION_OPERATION_TOO_LARGE` error. The
+check runs once the message has been received and parsed; the size of a WebSocket message
+itself is bounded by the underlying `ws` server, at 100 MiB.
 
 
 </div>

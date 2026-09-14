@@ -1,0 +1,170 @@
+---
+title: "SubscriptionService"
+generated: true
+---
+## SubscriptionService
+
+<GenerationInfo sourceFile="packages/core/src/service/services/subscription.service.ts" sourceLine="124" packageName="@vendure/core" since="3.8.0" />
+
+Feeds a `@Subscription()` resolver, which is otherwise written like any other resolver:
+`@Allow()`, `@Ctx()` and `@Args()` all behave as they do for a query.
+
+There are two ways to feed one, and both yield the payload under the name of the subscription
+field, so no `resolve` option is needed on the decorator:
+
+- `SubscriptionService.publish` / `SubscriptionService.fromPublished` send a payload
+  through the configured [SubscriptionRelayStrategy](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy). With a distributed strategy, a
+  payload published on any instance - or by the worker - reaches every subscriber.
+- `SubscriptionService.fromEvent` streams [EventBus](/reference/typescript-api/events/event-bus#eventbus) events directly. The EventBus is
+  in-process, so this only delivers events raised by the instance the client is connected to.
+
+Every delivery is scoped to the subscriber's Channel, and to their own session when the
+subscription is owner-scoped.
+
+*Example*
+
+```ts
+@Resolver()
+export class OrderStateSubscriptionResolver {
+  constructor(private subscriptionService: SubscriptionService) {}
+
+  @Subscription('orderStateChanged')
+  @Allow(Permission.ReadOrder)
+  orderStateChanged(@Ctx() ctx: RequestContext) {
+    return this.subscriptionService.fromPublished(ctx, 'orderStateChanged');
+  }
+}
+```
+
+```ts title="Signature"
+class SubscriptionService {
+    constructor(eventBus: EventBus, configService: ConfigService)
+    publish(ctx: RequestContext, fieldName: string, payload: T, options: PublishOptions = {}) => Promise<void>;
+    fromPublished(ctx: RequestContext, fieldName: string, options: PublishedSubscriptionOptions<T> = {}) => AsyncIterableIterator<Record<string, T>>;
+    fromEvent(ctx: RequestContext, fieldName: string, eventType: Type<T> | Array<Type<T>>, mapFn: (event: T) => R | undefined, options: SubscriptionScopeOptions = {}) => AsyncIterableIterator<Record<string, R>>;
+}
+```
+
+<div className="members-wrapper">
+
+### publish
+
+<MemberInfo kind="method" type={`(ctx: <a href='/reference/typescript-api/request/request-context#requestcontext'>RequestContext</a>, fieldName: string, payload: T, options: <a href='/reference/typescript-api/services/subscription-service#publishoptions'>PublishOptions</a> = {}) => Promise<void>`}   />
+
+Publishes a payload to every instance which has subscribers of the given subscription field,
+via the configured [SubscriptionRelayStrategy](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy). The `ctx` determines the Channel the
+payload belongs to (unless `channelIds` says otherwise), and the session & user which may
+receive it when it is owner-scoped.
+
+The payload must be JSON-compatible, since it may be serialized on its way to another
+instance, and it is relayed immediately: publish after the change has been committed (an
+[EventBus](/reference/typescript-api/events/event-bus#eventbus) handler is, since events are delivered after their transaction), or a
+subscriber's field resolver may still read the state from before it.
+### fromPublished
+
+<MemberInfo kind="method" type={`(ctx: <a href='/reference/typescript-api/request/request-context#requestcontext'>RequestContext</a>, fieldName: string, options: <a href='/reference/typescript-api/services/subscription-service#publishedsubscriptionoptions'>PublishedSubscriptionOptions</a><T> = {}) => AsyncIterableIterator<Record<string, T>>`}   />
+
+Subscribes to the payloads published to the given subscription field, and can be returned
+directly from the corresponding `@Subscription()` resolver.
+### fromEvent
+
+<MemberInfo kind="method" type={`(ctx: <a href='/reference/typescript-api/request/request-context#requestcontext'>RequestContext</a>, fieldName: string, eventType: Type<T> | Array<Type<T>>, mapFn: (event: T) => R | undefined, options: <a href='/reference/typescript-api/services/subscription-service#subscriptionscopeoptions'>SubscriptionScopeOptions</a> = {}) => AsyncIterableIterator<Record<string, R>>`}   />
+
+Streams the [EventBus](/reference/typescript-api/events/event-bus#eventbus) events of the given type(s) which occurred in the subscriber's
+Channel, mapped to the payload of the subscription field, and can be returned directly from
+the corresponding `@Subscription()` resolver.
+
+The `mapFn` returning `undefined` skips the event, which is how a subscription applies its
+own filtering, e.g. by the arguments of the field.
+
+Note that the EventBus is in-process: use `SubscriptionService.publish` with a
+distributed [SubscriptionRelayStrategy](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy) if subscribers must see what happened on
+another instance or in the worker.
+
+
+</div>
+## SubscriptionScopeOptions
+
+<GenerationInfo sourceFile="packages/core/src/service/services/subscription.service.ts" sourceLine="31" packageName="@vendure/core" since="3.8.0" />
+
+Options shared by both ways of feeding a subscription.
+
+```ts title="Signature"
+interface SubscriptionScopeOptions {
+    restrictToChannel?: boolean;
+    ownerOnly?: boolean;
+}
+```
+
+<div className="members-wrapper">
+
+### restrictToChannel
+
+<MemberInfo kind="property" type={`boolean`} default={`true`}   />
+
+By default a subscriber only receives what was published in its own Channel. Setting this
+to `false` delivers from every Channel, and requires the SuperAdmin permission.
+### ownerOnly
+
+<MemberInfo kind="property" type={`boolean`}   />
+
+Restricts delivery to what the subscriber's own session or user caused, which is what an
+`@Allow(Permission.Owner)` subscription needs.
+
+It defaults to `ctx.authorizedAsOwnerOnly`, i.e. it is applied automatically when the
+resolver requires `Permission.Owner` and the subscriber holds no other permission. Such a
+subscription requires an existing session, since a WebSocket client is never given a new
+anonymous one. With `authOptions.disableAuth` there are no sessions, so owner scoping is
+not applied at all.
+
+
+</div>
+## PublishOptions
+
+<GenerationInfo sourceFile="packages/core/src/service/services/subscription.service.ts" sourceLine="62" packageName="@vendure/core" since="3.8.0" />
+
+Options available when publishing a payload.
+
+```ts title="Signature"
+interface PublishOptions {
+    channelIds?: ID[];
+}
+```
+
+<div className="members-wrapper">
+
+### channelIds
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/common/id#id'>ID</a>[]`}   />
+
+The Channels the payload belongs to, when it concerns an entity which is assigned to
+Channels: a subscriber receives it in any of them. Defaults to the Channel of the `ctx`.
+
+
+</div>
+## PublishedSubscriptionOptions
+
+<GenerationInfo sourceFile="packages/core/src/service/services/subscription.service.ts" sourceLine="79" packageName="@vendure/core" since="3.8.0" />
+
+Options available when subscribing to published payloads.
+
+```ts title="Signature"
+interface PublishedSubscriptionOptions<T> extends SubscriptionScopeOptions {
+    accept?: (payload: T, origin: SubscriptionMessageOrigin) => boolean;
+}
+```
+* Extends: [`SubscriptionScopeOptions`](/reference/typescript-api/services/subscription-service#subscriptionscopeoptions)
+
+
+
+<div className="members-wrapper">
+
+### accept
+
+<MemberInfo kind="property" type={`(payload: T, origin: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionmessageorigin'>SubscriptionMessageOrigin</a>) => boolean`}   />
+
+Applied to each payload which passed the Channel and owner checks, e.g. to apply the
+arguments of the subscription field.
+
+
+</div>

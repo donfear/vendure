@@ -1,0 +1,41 @@
+---
+title: "InMemorySubscriptionRelayStrategy"
+generated: true
+---
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/in-memory-subscription-relay-strategy.ts" sourceLine="18" packageName="@vendure/core" since="3.8.0" />
+
+The default [SubscriptionRelayStrategy](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy), which delivers messages within a single process.
+Events published by another server instance or by the worker are not delivered - configure the
+[RedisSubscriptionRelayStrategy](/reference/typescript-api/subscriptions/redis-subscription-relay-strategy#redissubscriptionrelaystrategy) for that.
+
+```ts title="Signature"
+class InMemorySubscriptionRelayStrategy implements SubscriptionRelayStrategy {
+    destroy() => ;
+    publish(message: RelayedSubscriptionMessage) => Promise<void>;
+    subscribe(key: string, listener: SubscriptionRelayListener) => Promise<() => Promise<void>>;
+}
+```
+* Implements: [`SubscriptionRelayStrategy`](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy)
+
+
+
+<div className="members-wrapper">
+
+### destroy
+
+<MemberInfo kind="method" type={`() => `}   />
+
+
+### publish
+
+<MemberInfo kind="method" type={`(message: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#relayedsubscriptionmessage'>RelayedSubscriptionMessage</a>) => Promise<void>`}   />
+
+
+### subscribe
+
+<MemberInfo kind="method" type={`(key: string, listener: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaylistener'>SubscriptionRelayListener</a>) => Promise<() => Promise<void>>`}   />
+
+
+
+
+</div>

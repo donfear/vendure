@@ -3168,6 +3168,32 @@ type OrderTaxSummary {
 }`}
 </GraphQLDoc>
 
+<a name="orderupdatedpayload"></a>
+
+## OrderUpdatedPayload
+
+<GraphQLDoc
+  type="type"
+  typeName="OrderUpdatedPayload"
+  typeLinks={{
+    OrderUpdatedType: '/reference/graphql-api/admin/enums#orderupdatedtype',
+    ID: '/reference/graphql-api/admin/object-types#id',
+    String: '/reference/graphql-api/admin/object-types#string',
+    Order: '/reference/graphql-api/admin/object-types#order',
+  }}
+>
+{`type OrderUpdatedPayload {
+  type: OrderUpdatedType!
+  orderId: ID!
+  """The state the Order transitioned from, for a \`STATE_TRANSITION\` event."""
+  fromState: String
+  """The state the Order transitioned to, for a \`STATE_TRANSITION\` event."""
+  toState: String
+  """Null if the Order is no longer visible to the subscriber, e.g. because it was deleted."""
+  order: Order
+}`}
+</GraphQLDoc>
+
 <a name="payment"></a>
 
 ## Payment

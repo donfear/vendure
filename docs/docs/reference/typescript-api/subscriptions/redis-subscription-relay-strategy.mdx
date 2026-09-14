@@ -1,0 +1,106 @@
+---
+title: "RedisSubscriptionRelayStrategy"
+generated: true
+---
+## RedisSubscriptionRelayStrategy
+
+<GenerationInfo sourceFile="packages/core/src/plugin/redis-subscription-relay-strategy/redis-subscription-relay-strategy.ts" sourceLine="82" packageName="@vendure/core" since="3.8.0" />
+
+A [SubscriptionRelayStrategy](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy) which uses Redis pub/sub to deliver subscription payloads to
+every server instance, including those published by the worker process.
+
+Redis pub/sub does not replay: if the connection drops, whatever was published in the meantime
+is gone. Every open subscription is therefore failed when that happens, so that clients refetch
+their data and subscribe again.
+
+Note: To use this strategy, you need to manually install the `ioredis` package:
+
+```shell
+npm install ioredis@^5.3.2
+```
+
+*Example*
+
+```ts
+import { RedisSubscriptionRelayStrategy, VendureConfig } from '@vendure/core';
+
+export const config: VendureConfig = {
+  apiOptions: {
+    subscriptions: {
+      enabled: true,
+      relayStrategy: new RedisSubscriptionRelayStrategy({
+        redisOptions: { host: 'localhost', port: 6379 },
+      }),
+    },
+  },
+  // ...
+};
+```
+
+```ts title="Signature"
+class RedisSubscriptionRelayStrategy implements SubscriptionRelayStrategy {
+    constructor(options: RedisSubscriptionRelayStrategyOptions = {})
+    init() => ;
+    destroy() => ;
+    publish(message: RelayedSubscriptionMessage) => Promise<void>;
+    subscribe(key: string, listener: SubscriptionRelayListener) => Promise<() => Promise<void>>;
+}
+```
+* Implements: [`SubscriptionRelayStrategy`](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy)
+
+
+
+<div className="members-wrapper">
+
+### init
+
+<MemberInfo kind="method" type={`() => `}   />
+
+
+### destroy
+
+<MemberInfo kind="method" type={`() => `}   />
+
+
+### publish
+
+<MemberInfo kind="method" type={`(message: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#relayedsubscriptionmessage'>RelayedSubscriptionMessage</a>) => Promise<void>`}   />
+
+
+### subscribe
+
+<MemberInfo kind="method" type={`(key: string, listener: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaylistener'>SubscriptionRelayListener</a>) => Promise<() => Promise<void>>`}   />
+
+
+
+
+</div>
+## RedisSubscriptionRelayStrategyOptions
+
+<GenerationInfo sourceFile="packages/core/src/plugin/redis-subscription-relay-strategy/redis-subscription-relay-strategy.ts" sourceLine="21" packageName="@vendure/core" since="3.8.0" />
+
+Configuration options for the [RedisSubscriptionRelayStrategy](/reference/typescript-api/subscriptions/redis-subscription-relay-strategy#redissubscriptionrelaystrategy).
+
+```ts title="Signature"
+interface RedisSubscriptionRelayStrategyOptions {
+    namespace?: string;
+    redisOptions?: import('ioredis').RedisOptions;
+}
+```
+
+<div className="members-wrapper">
+
+### namespace
+
+<MemberInfo kind="property" type={`string`} default={`'vendure:subscriptions'`}   />
+
+The prefix used for all Redis channels, so that a Redis instance can be shared between
+applications.
+### redisOptions
+
+<MemberInfo kind="property" type={`import('ioredis').RedisOptions`}   />
+
+Options passed to the `ioredis` client.
+
+
+</div>

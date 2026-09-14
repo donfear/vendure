@@ -1,0 +1,146 @@
+---
+title: "SubscriptionRelayStrategy"
+generated: true
+---
+## SubscriptionRelayStrategy
+
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/subscription-relay-strategy.ts" sourceLine="74" packageName="@vendure/core" since="3.8.0" />
+
+Determines how a published subscription payload reaches the server instances which have
+subscribers. The default [InMemorySubscriptionRelayStrategy](/reference/typescript-api/subscriptions/in-memory-subscription-relay-strategy#inmemorysubscriptionrelaystrategy) delivers within a single
+process; use the [RedisSubscriptionRelayStrategy](/reference/typescript-api/subscriptions/redis-subscription-relay-strategy#redissubscriptionrelaystrategy) for a multi-instance deployment or when
+publishing from the worker.
+
+:::info
+
+This is configured via the `apiOptions.subscriptions.relayStrategy` property of your
+VendureConfig.
+
+:::
+
+```ts title="Signature"
+interface SubscriptionRelayStrategy extends InjectableStrategy {
+    publish(message: RelayedSubscriptionMessage): Promise<void>;
+    subscribe(key: string, listener: SubscriptionRelayListener): Promise<() => Promise<void>>;
+}
+```
+* Extends: [`InjectableStrategy`](/reference/typescript-api/common/injectable-strategy#injectablestrategy)
+
+
+
+<div className="members-wrapper">
+
+### publish
+
+<MemberInfo kind="method" type={`(message: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#relayedsubscriptionmessage'>RelayedSubscriptionMessage</a>) => Promise<void>`}   />
+
+Delivers the message to every instance subscribed to `message.key`, including the instance
+it was published from.
+### subscribe
+
+<MemberInfo kind="method" type={`(key: string, listener: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaylistener'>SubscriptionRelayListener</a>) => Promise<() => Promise<void>>`}   />
+
+Subscribes to the given key, returning a function which cancels the subscription and never
+rejects.
+
+
+</div>
+## SubscriptionMessageOrigin
+
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/subscription-relay-strategy.ts" sourceLine="14" packageName="@vendure/core" since="3.8.0" />
+
+Identifies the origin of a relayed subscription message, so that a subscriber on another
+instance can apply the same Channel and owner scoping it would apply locally.
+
+```ts title="Signature"
+interface SubscriptionMessageOrigin {
+    channelIds: ID[];
+    sessionId?: ID;
+    activeUserId?: ID;
+}
+```
+
+<div className="members-wrapper">
+
+### channelIds
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/common/id#id'>ID</a>[]`}   />
+
+
+### sessionId
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/common/id#id'>ID</a>`}   />
+
+
+### activeUserId
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/common/id#id'>ID</a>`}   />
+
+
+
+
+</div>
+## RelayedSubscriptionMessage
+
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/subscription-relay-strategy.ts" sourceLine="29" packageName="@vendure/core" since="3.8.0" />
+
+A subscription payload as it travels between server instances.
+
+```ts title="Signature"
+interface RelayedSubscriptionMessage {
+    key: string;
+    payload: unknown;
+    origin: SubscriptionMessageOrigin;
+}
+```
+
+<div className="members-wrapper">
+
+### key
+
+<MemberInfo kind="property" type={`string`}   />
+
+
+### payload
+
+<MemberInfo kind="property" type={`unknown`}   />
+
+
+### origin
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionmessageorigin'>SubscriptionMessageOrigin</a>`}   />
+
+
+
+
+</div>
+## SubscriptionRelayListener
+
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/subscription-relay-strategy.ts" sourceLine="44" packageName="@vendure/core" since="3.8.0" />
+
+Receives what a [SubscriptionRelayStrategy](/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionrelaystrategy) delivers for one subscription.
+
+```ts title="Signature"
+interface SubscriptionRelayListener {
+    next(message: RelayedSubscriptionMessage): void;
+    error(error: Error): void;
+}
+```
+
+<div className="members-wrapper">
+
+### next
+
+<MemberInfo kind="method" type={`(message: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#relayedsubscriptionmessage'>RelayedSubscriptionMessage</a>) => void`}   />
+
+
+### error
+
+<MemberInfo kind="method" type={`(error: Error) => void`}   />
+
+Called when the relay can no longer guarantee delivery, e.g. because its connection was
+lost and messages published in the meantime are gone. The subscription is failed, so that
+the client refetches its data and subscribes again.
+
+
+</div>

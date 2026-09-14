@@ -302,6 +302,11 @@ const manifestInput: DocsPackageManifestInput = {
                     slug: 'extend-graphql-api',
                     file: file('docs/guides/developer-guide/extend-graphql-api/index.mdx'),
                 },
+                {
+                    title: 'GraphQL Subscriptions',
+                    slug: 'subscriptions',
+                    file: file('docs/guides/developer-guide/subscriptions/index.mdx'),
+                },
                 // Advanced Topics section
                 {
                     title: 'Custom Strategies in Plugins',
