@@ -9,6 +9,13 @@ interface AppProps {
     apiType: 'admin' | 'shop';
 }
 
+/** The api url may be relative, so it is resolved against the page before switching to ws(s). */
+function toWebSocketUrl(apiUrl: string): string {
+    const url = new URL(apiUrl, window.location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString();
+}
+
 const App: React.FC<AppProps> = ({ apiType }) => {
     const { adminApiUrl, shopApiUrl } = window.GRAPHIQL_SETTINGS ?? {
         adminApiUrl: 'http://localhost:3000/admin-api',
@@ -25,7 +32,7 @@ const App: React.FC<AppProps> = ({ apiType }) => {
     const fetcher = useCallback(() => {
         return createGraphiQLFetcher({
             url: apiUrl,
-            subscriptionUrl: apiUrl.replace(/^http/, 'ws'),
+            subscriptionUrl: toWebSocketUrl(apiUrl),
         });
     }, [apiUrl]);
 
