@@ -5,6 +5,15 @@ type Query {
     eligibleShippingMethodsForDraftOrder(orderId: ID!): [ShippingMethodQuote!]!
 }
 
+type Subscription {
+    """
+    Emitted whenever an Order in the active Channel is created, updated, deleted, or transitions
+    from one state to another. Requires the `ReadOrder` permission. Pass an `orderId` to receive
+    the events of a single Order only.
+    """
+    orderUpdated(orderId: ID): OrderUpdatedPayload!
+}
+
 type Mutation {
     settlePayment(id: ID!): SettlePaymentResult!
     cancelPayment(id: ID!): CancelPaymentResult!
@@ -461,3 +470,22 @@ union ModifyOrderResult =
     | IneligibleShippingMethodError
 union AddManualPaymentToOrderResult = Order | ManualPaymentStateError
 union SetCustomerForDraftOrderResult = Order | EmailAddressConflictError
+
+"The kind of change which caused an `orderUpdated` event to be emitted."
+enum OrderUpdatedType {
+    CREATED
+    UPDATED
+    DELETED
+    STATE_TRANSITION
+}
+
+type OrderUpdatedPayload {
+    type: OrderUpdatedType!
+    orderId: ID!
+    "The state the Order transitioned from, for a `STATE_TRANSITION` event."
+    fromState: String
+    "The state the Order transitioned to, for a `STATE_TRANSITION` event."
+    toState: String
+    "Null if the Order is no longer visible to the subscriber, e.g. because it was deleted."
+    order: Order
+}

@@ -72,6 +72,9 @@ class ReadonlySettingsTestPlugin implements OnApplicationBootstrap {
 export const devConfig: VendureConfig = {
     apiOptions: {
         port: Number(process.env.PORT) || Number(process.env.API_PORT) || API_PORT,
+        subscriptions: {
+            enabled: true,
+        },
         trustProxy: process.env.VENDURE_TRUST_PROXY === 'true',
         adminApiPath: ADMIN_API_PATH,
         adminApiPlayground: {

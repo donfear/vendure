@@ -11,5 +11,6 @@ export * from './plugin-metadata';
 export * from './plugin-utils';
 export * from './redis-cache-plugin/redis-cache-plugin';
 export * from './redis-cache-plugin/redis-cache-strategy';
+export * from './redis-subscription-relay-strategy/redis-subscription-relay-strategy';
 export * from './redis-cache-plugin/types';
 export * from './vendure-plugin';

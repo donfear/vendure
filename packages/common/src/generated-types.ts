@@ -4568,6 +4568,26 @@ export enum OrderType {
   Seller = 'Seller'
 }
 
+export type OrderUpdatedPayload = {
+  __typename?: 'OrderUpdatedPayload';
+  /** The state the Order transitioned from, for a `STATE_TRANSITION` event. */
+  fromState?: Maybe<Scalars['String']['output']>;
+  /** Null if the Order is no longer visible to the subscriber, e.g. because it was deleted. */
+  order?: Maybe<Order>;
+  orderId: Scalars['ID']['output'];
+  /** The state the Order transitioned to, for a `STATE_TRANSITION` event. */
+  toState?: Maybe<Scalars['String']['output']>;
+  type: OrderUpdatedType;
+};
+
+/** The kind of change which caused an `orderUpdated` event to be emitted. */
+export enum OrderUpdatedType {
+  CREATED = 'CREATED',
+  DELETED = 'DELETED',
+  STATE_TRANSITION = 'STATE_TRANSITION',
+  UPDATED = 'UPDATED'
+}
+
 export type PaginatedList = {
   items: Array<Node>;
   totalItems: Scalars['Int']['output'];
@@ -6682,6 +6702,21 @@ export type StructField = {
 };
 
 export type StructFieldConfig = BooleanStructFieldConfig | DateTimeStructFieldConfig | FloatStructFieldConfig | IntStructFieldConfig | StringStructFieldConfig | TextStructFieldConfig;
+
+export type Subscription = {
+  __typename?: 'Subscription';
+  /**
+   * Emitted whenever an Order in the active Channel is created, updated, deleted, or transitions
+   * from one state to another. Requires the `ReadOrder` permission. Pass an `orderId` to receive
+   * the events of a single Order only.
+   */
+  orderUpdated: OrderUpdatedPayload;
+};
+
+
+export type SubscriptionOrderUpdatedArgs = {
+  orderId?: InputMaybe<Scalars['ID']['input']>;
+};
 
 /** Indicates that an operation succeeded, where we do not want to return any more specific information. */
 export type Success = {

@@ -40,10 +40,11 @@ const enum FileName {
     INPUT = 'input-types',
     MUTATION = 'mutations',
     QUERY = 'queries',
+    SUBSCRIPTION = 'subscriptions',
     OBJECT = 'object-types',
 }
 
-type GraphQLDocType = 'query' | 'mutation' | 'type' | 'input' | 'enum' | 'scalar' | 'union';
+type GraphQLDocType = 'query' | 'mutation' | 'subscription' | 'type' | 'input' | 'enum' | 'scalar' | 'union';
 
 const schemaJson = fs.readFileSync(SCHEMA_FILE, 'utf8');
 const parsed = JSON.parse(schemaJson);
@@ -316,7 +317,10 @@ function renderUnionSDL(type: GraphQLUnionType): string {
  * Renders a query/mutation field wrapped in its parent type as SDL
  * Note: Description is included at the top level, not inside the field
  */
-function renderQueryMutationFieldSDL(field: GraphQLField<any, any>, parentTypeName: 'Query' | 'Mutation'): string {
+function renderQueryMutationFieldSDL(
+    field: GraphQLField<any, any>,
+    parentTypeName: 'Query' | 'Mutation' | 'Subscription',
+): string {
     let result = '';
     if (field.description) {
         result += renderSDLDescription(field.description);
@@ -386,6 +390,8 @@ function generateGraphqlDocs(outputDir: string) {
     let objectTypesOutput = generateFrontMatter('Types') + '\n\n';
     let inputTypesOutput = generateFrontMatter('Input Objects') + '\n\n';
     let enumsOutput = generateFrontMatter('Enums') + '\n\n';
+    let subscriptionsOutput = generateFrontMatter('Subscriptions') + '\n\n';
+    let hasSubscriptions = false;
 
     const sortByName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : 1);
     const sortedTypes = Object.values(schema.getTypeMap()).sort(sortByName);
@@ -435,6 +441,25 @@ function generateGraphqlDocs(outputDir: string) {
                         deprecated,
                     });
                     mutationsOutput += '\n';
+                }
+            } else if (type.name === 'Subscription') {
+                // Handle Subscription fields
+                for (const field of Object.values(type.getFields()).sort(sortByName)) {
+                    hasSubscriptions = true;
+                    const referencedTypes = collectFieldReferencedTypes(field);
+                    const typeLinks = buildTypeLinksMap(referencedTypes);
+                    const sdlContent = renderQueryMutationFieldSDL(field, 'Subscription');
+                    const deprecated = field.deprecationReason || undefined;
+
+                    subscriptionsOutput += `\n<a name="${field.name.toLowerCase()}"></a>\n\n## ${field.name}\n\n`;
+                    subscriptionsOutput += renderGraphQLDocComponent({
+                        type: 'subscription',
+                        typeName: field.name,
+                        sdlContent,
+                        typeLinks,
+                        deprecated,
+                    });
+                    subscriptionsOutput += '\n';
                 }
             } else {
                 // Handle regular object types
@@ -515,18 +540,24 @@ function generateGraphqlDocs(outputDir: string) {
     fs.writeFileSync(path.join(outputDir, FileName.OBJECT + '.mdx'), objectTypesOutput);
     fs.writeFileSync(path.join(outputDir, FileName.INPUT + '.mdx'), inputTypesOutput);
     fs.writeFileSync(path.join(outputDir, FileName.ENUM + '.mdx'), enumsOutput);
+    if (hasSubscriptions) {
+        fs.writeFileSync(path.join(outputDir, FileName.SUBSCRIPTION + '.mdx'), subscriptionsOutput);
+    }
 
     // Generate _index.mdx for the API section
     const apiTitle = targetApi === 'admin' ? 'Admin API' : 'Shop API';
     const indexOutput = generateFrontMatter(apiTitle) + '\n\n' +
         `<LinkCard href="${docsUrl}${FileName.QUERY}" title="Queries" />\n` +
         `<LinkCard href="${docsUrl}${FileName.MUTATION}" title="Mutations" />\n` +
+        (hasSubscriptions
+            ? `<LinkCard href="${docsUrl}${FileName.SUBSCRIPTION}" title="Subscriptions" />\n`
+            : '') +
         `<LinkCard href="${docsUrl}${FileName.OBJECT}" title="Types" />\n` +
         `<LinkCard href="${docsUrl}${FileName.INPUT}" title="Input Objects" />\n` +
         `<LinkCard href="${docsUrl}${FileName.ENUM}" title="Enums" />\n`;
     fs.writeFileSync(path.join(outputDir, '_index.mdx'), indexOutput);
 
-    console.log(`Generated 5 GraphQL API docs in ${+new Date() - timeStart}ms`);
+    console.log(`Generated ${hasSubscriptions ? 6 : 5} GraphQL API docs in ${+new Date() - timeStart}ms`);
 }
 
 function getTargetApiFromArgs(): TargetApi {

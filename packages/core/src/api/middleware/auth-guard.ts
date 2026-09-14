@@ -137,7 +137,10 @@ export class AuthGuard implements CanActivate {
             });
         }
 
-        if (hasOwnerPermission && !serializedSession) {
+        // A WebSocket client cannot receive the new session token, so creating a session here
+        // would only leave an orphaned row behind for each subscribe attempt.
+        const isSubscription = info?.operation.operation === 'subscription';
+        if (hasOwnerPermission && !serializedSession && !isSubscription) {
             serializedSession = await this.sessionService.createAnonymousSession();
             setSessionToken({
                 sessionToken: serializedSession.token,

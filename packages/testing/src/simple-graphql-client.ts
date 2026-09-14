@@ -2,11 +2,13 @@ import { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { SUPER_ADMIN_USER_IDENTIFIER, SUPER_ADMIN_USER_PASSWORD } from '@vendure/common/lib/shared-constants';
 import { VendureConfig } from '@vendure/core';
 import fs from 'fs';
-import { DocumentNode } from 'graphql';
+import { DocumentNode, FormattedExecutionResult } from 'graphql';
 import gql from 'graphql-tag';
+import { createClient } from 'graphql-ws';
 import { print } from 'graphql/language/printer';
 import mime from 'mime-types';
 import { stringify } from 'querystring';
+import WebSocket from 'ws';
 
 import { QueryParams } from './types';
 import { createUploadPostData } from './utils/create-upload-post-data';
@@ -39,6 +41,7 @@ const LOGIN = gql`
 export class SimpleGraphQLClient {
     private authToken: string;
     private channelToken: string | null = null;
+    private cookies = new Map<string, string>();
     private headers: { [key: string]: any } = {
         'Apollo-Require-Preflight': 'true',
     };
@@ -78,6 +81,15 @@ export class SimpleGraphQLClient {
 
     /**
      * @description
+     * Returns the cookies which the server has set on this client, in the format of a
+     * `Cookie` request header. Useful when testing the `cookie` tokenMethod.
+     */
+    getCookieHeader(): string {
+        return [...this.cookies.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
+    }
+
+    /**
+     * @description
      * Performs both query and mutation operations.
      */
     async query<T = any, V extends Record<string, any> = Record<string, any>>(
@@ -106,7 +118,14 @@ export class SimpleGraphQLClient {
      * which make use of REST controllers.
      */
     async fetch(url: string, options: RequestInit = {}): Promise<Response> {
-        const headers = { 'Content-Type': 'application/json', ...this.headers, ...options.headers };
+        const cookieHeader = this.getCookieHeader();
+        const headers = {
+            'Content-Type': 'application/json',
+            ...this.headers,
+            // sending back the server's cookies is what makes the `cookie` tokenMethod work
+            ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+            ...options.headers,
+        };
 
         const response = await fetch(url, {
             ...options,
@@ -116,7 +135,96 @@ export class SimpleGraphQLClient {
         if (authToken != null) {
             this.setAuthToken(authToken);
         }
+        this.storeCookies(response);
         return response;
+    }
+
+    /**
+     * @description
+     * Opens a GraphQL subscription over a WebSocket connection to the API, and returns an
+     * async iterator of the results. The iterator also exposes a `close()` method which
+     * terminates the connection.
+     *
+     * The auth token & channel token of this client are passed in the `connectionParams` of the
+     * connection. Requires `apiOptions.subscriptions.enabled` in the server config.
+     *
+     * @example
+     * ```ts
+     * const subscription = client.subscribe(gql`
+     *     subscription { orderUpdated { type orderId } }
+     * `);
+     * const received: any[] = [];
+     * void (async () => {
+     *     for await (const result of subscription) {
+     *         received.push(result.data);
+     *     }
+     * })();
+     * // ... trigger an event, then:
+     * subscription.close();
+     * ```
+     */
+    subscribe<T = any, V extends Record<string, any> = Record<string, any>>(
+        document: DocumentNode | TypedDocumentNode<T, V>,
+        variables?: V,
+        options: {
+            /** Overrides the connectionParams which are sent with the ConnectionInit message. */
+            connectionParams?: Record<string, unknown> | null;
+            /** Additional headers to send with the WebSocket upgrade request. */
+            headers?: Record<string, string>;
+            /** Sends the cookies previously set by the server with the upgrade request. */
+            withCookies?: boolean;
+        } = {},
+    ): AsyncIterableIterator<FormattedExecutionResult<T>> & { close: () => void } {
+        const channelTokenKey = this.vendureConfig.apiOptions.channelTokenKey ?? 'vendure-token';
+        const connectionParams =
+            options.connectionParams === undefined
+                ? {
+                      ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
+                      ...(this.channelToken ? { [channelTokenKey]: this.channelToken } : {}),
+                  }
+                : (options.connectionParams ?? undefined);
+        const headers = {
+            ...options.headers,
+            ...(options.withCookies ? { Cookie: this.getCookieHeader() } : {}),
+        };
+        // `graphql-ws` constructs the socket itself, so a subclass is the only way to pass
+        // headers (needed for cookie-based auth) to the upgrade request.
+        class WebSocketWithHeaders extends WebSocket {
+            constructor(url: string, protocols?: string | string[]) {
+                super(url, protocols, { headers });
+            }
+        }
+        const client = createClient({
+            url: this.apiUrl.replace(/^http/, 'ws'),
+            webSocketImpl: WebSocketWithHeaders,
+            connectionParams,
+            retryAttempts: 0,
+        });
+        const iterator = client.iterate<T, V>({
+            query: print(document),
+            variables,
+        });
+        return Object.assign(iterator, {
+            close: () => {
+                void iterator.return?.();
+                void client.dispose();
+            },
+        });
+    }
+
+    private storeCookies(response: Response) {
+        const setCookies: string[] =
+            typeof (response.headers as any).getSetCookie === 'function'
+                ? (response.headers as any).getSetCookie()
+                : [];
+        for (const cookie of setCookies) {
+            const [pair] = cookie.split(';');
+            const separatorIndex = pair.indexOf('=');
+            if (separatorIndex === -1) {
+                continue;
+            }
+            this.cookies.set(pair.slice(0, separatorIndex).trim(), pair.slice(separatorIndex + 1).trim());
+        }
     }
 
     /**

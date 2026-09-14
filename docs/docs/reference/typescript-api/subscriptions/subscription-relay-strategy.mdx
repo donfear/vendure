@@ -1,0 +1,118 @@
+---
+title: "SubscriptionRelayStrategy"
+generated: true
+---
+## SubscriptionRelayStrategy
+
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/subscription-relay-strategy.ts" sourceLine="51" packageName="@vendure/core" />
+
+Determines how a published subscription payload reaches the server instances which have
+subscribers. The default [InMemorySubscriptionRelayStrategy](/reference/typescript-api/subscriptions/in-memory-subscription-relay-strategy#inmemorysubscriptionrelaystrategy) delivers within a single
+process; use the [RedisSubscriptionRelayStrategy](/reference/typescript-api/subscriptions/redis-subscription-relay-strategy#redissubscriptionrelaystrategy) for a multi-instance deployment or when
+publishing from the worker.
+
+:::info
+
+This is configured via the `apiOptions.subscriptions.relayStrategy` property of your
+VendureConfig.
+
+:::
+
+```ts title="Signature"
+interface SubscriptionRelayStrategy extends InjectableStrategy {
+    publish(message: RelayedSubscriptionMessage): Promise<void>;
+    subscribe(
+        key: string,
+        handler: (message: RelayedSubscriptionMessage) => void,
+    ): Promise<() => Promise<void>>;
+}
+```
+* Extends: [`InjectableStrategy`](/reference/typescript-api/common/injectable-strategy#injectablestrategy)
+
+
+
+<div className="members-wrapper">
+
+### publish
+
+<MemberInfo kind="method" type={`(message: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#relayedsubscriptionmessage'>RelayedSubscriptionMessage</a>) => Promise<void>`}   />
+
+Delivers the message to every instance subscribed to `message.key`, including the instance
+it was published from.
+### subscribe
+
+<MemberInfo kind="method" type={`(key: string, handler: (message: <a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#relayedsubscriptionmessage'>RelayedSubscriptionMessage</a>) => void) => Promise<() => Promise<void>>`}   />
+
+Subscribes to the given key, returning a function which cancels the subscription.
+
+
+</div>
+## SubscriptionMessageOrigin
+
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/subscription-relay-strategy.ts" sourceLine="13" packageName="@vendure/core" />
+
+Identifies the origin of a relayed subscription message, so that a subscriber on another
+instance can apply the same Channel and owner scoping it would apply locally.
+
+```ts title="Signature"
+interface SubscriptionMessageOrigin {
+    channelId: ID;
+    sessionId?: ID;
+    activeUserId?: ID;
+}
+```
+
+<div className="members-wrapper">
+
+### channelId
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/common/id#id'>ID</a>`}   />
+
+
+### sessionId
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/common/id#id'>ID</a>`}   />
+
+
+### activeUserId
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/common/id#id'>ID</a>`}   />
+
+
+
+
+</div>
+## RelayedSubscriptionMessage
+
+<GenerationInfo sourceFile="packages/core/src/config/subscriptions/subscription-relay-strategy.ts" sourceLine="26" packageName="@vendure/core" />
+
+A subscription payload as it travels between server instances.
+
+```ts title="Signature"
+interface RelayedSubscriptionMessage {
+    key: string;
+    payload: unknown;
+    origin: SubscriptionMessageOrigin;
+}
+```
+
+<div className="members-wrapper">
+
+### key
+
+<MemberInfo kind="property" type={`string`}   />
+
+
+### payload
+
+<MemberInfo kind="property" type={`unknown`}   />
+
+
+### origin
+
+<MemberInfo kind="property" type={`<a href='/reference/typescript-api/subscriptions/subscription-relay-strategy#subscriptionmessageorigin'>SubscriptionMessageOrigin</a>`}   />
+
+
+
+
+</div>

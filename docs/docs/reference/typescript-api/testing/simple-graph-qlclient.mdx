@@ -2,7 +2,7 @@
 title: "SimpleGraphQLClient"
 generated: true
 ---
-<GenerationInfo sourceFile="packages/testing/src/simple-graphql-client.ts" sourceLine="39" packageName="@vendure/testing" />
+<GenerationInfo sourceFile="packages/testing/src/simple-graphql-client.ts" sourceLine="41" packageName="@vendure/testing" />
 
 A minimalistic GraphQL client for populating and querying test data.
 
@@ -12,8 +12,17 @@ class SimpleGraphQLClient {
     setAuthToken(token: string) => ;
     setChannelToken(token: string | null) => ;
     getAuthToken() => string;
+    getCookieHeader() => string;
     query(query: DocumentNode | TypedDocumentNode<T, V>, variables?: V, queryParams?: QueryParams) => Promise<T>;
     fetch(url: string, options: RequestInit = {}) => Promise<Response>;
+    subscribe(document: DocumentNode | TypedDocumentNode<T, V>, variables?: V, options: {
+            /** Overrides the connectionParams which are sent with the ConnectionInit message. */
+            connectionParams?: Record<string, unknown> | null;
+            /** Additional headers to send with the WebSocket upgrade request. */
+            headers?: Record<string, string>;
+            /** Sends the cookies previously set by the server with the upgrade request. */
+            withCookies?: boolean;
+        } = {}) => AsyncIterableIterator<FormattedExecutionResult<T>> & { close: () => void };
     queryStatus(query: DocumentNode, variables?: V) => Promise<number>;
     asUserWithCredentials(username: string, password: string) => ;
     asSuperAdmin() => ;
@@ -44,6 +53,12 @@ Sets the authToken to be used in each GraphQL request.
 <MemberInfo kind="method" type={`() => string`}   />
 
 Returns the authToken currently being used.
+### getCookieHeader
+
+<MemberInfo kind="method" type={`() => string`}   />
+
+Returns the cookies which the server has set on this client, in the format of a
+`Cookie` request header. Useful when testing the `cookie` tokenMethod.
 ### query
 
 <MemberInfo kind="method" type={`(query: DocumentNode | TypedDocumentNode<T, V>, variables?: V, queryParams?: QueryParams) => Promise<T>`}   />
@@ -56,6 +71,32 @@ Performs both query and mutation operations.
 Performs a raw HTTP request to the given URL, but also includes the authToken & channelToken
 headers if they have been set. Useful for testing non-GraphQL endpoints, e.g. for plugins
 which make use of REST controllers.
+### subscribe
+
+<MemberInfo kind="method" type={`(document: DocumentNode | TypedDocumentNode<T, V>, variables?: V, options: {             /** Overrides the connectionParams which are sent with the ConnectionInit message. */             connectionParams?: Record<string, unknown> | null;             /** Additional headers to send with the WebSocket upgrade request. */             headers?: Record<string, string>;             /** Sends the cookies previously set by the server with the upgrade request. */             withCookies?: boolean;         } = {}) => AsyncIterableIterator<FormattedExecutionResult<T>> &#38; { close: () => void }`}   />
+
+Opens a GraphQL subscription over a WebSocket connection to the API, and returns an
+async iterator of the results. The iterator also exposes a `close()` method which
+terminates the connection.
+
+The auth token & channel token of this client are passed in the `connectionParams` of the
+connection. Requires `apiOptions.subscriptions.enabled` in the server config.
+
+*Example*
+
+```ts
+const subscription = client.subscribe(gql`
+    subscription { orderUpdated { type orderId } }
+`);
+const received: any[] = [];
+void (async () => {
+    for await (const result of subscription) {
+        received.push(result.data);
+    }
+})();
+// ... trigger an event, then:
+subscription.close();
+```
 ### queryStatus
 
 <MemberInfo kind="method" type={`(query: DocumentNode, variables?: V) => Promise<number>`}   />

@@ -37,6 +37,7 @@
         "@vendure/core": "3.7.3",
         "@vitejs/plugin-react": "^5.0.4",
         "graphiql": "^4.0.2",
+        "graphql-ws": "^6.0.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
         "rimraf": "^6.0.1",

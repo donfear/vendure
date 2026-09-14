@@ -13,6 +13,7 @@ import { CustomFieldRelationService } from './helpers/custom-field-relation/cust
 import { CustomerChannelAssignmentService } from './helpers/customer-channel-assignment/customer-channel-assignment.service';
 import { EntityDuplicatorService } from './helpers/entity-duplicator/entity-duplicator.service';
 import { EntityHydrator } from './helpers/entity-hydrator/entity-hydrator.service';
+import { OrderUpdatedPublisher } from './helpers/order-updated-publisher/order-updated-publisher';
 import { EntitySlugService } from './helpers/entity-slug.service';
 import { ExternalAuthenticationService } from './helpers/external-authentication/external-authentication.service';
 import { FacetValueChecker } from './helpers/facet-value-checker/facet-value-checker';
@@ -69,6 +70,7 @@ import { ShippingMethodService } from './services/shipping-method.service';
 import { StockLevelService } from './services/stock-level.service';
 import { StockLocationService } from './services/stock-location.service';
 import { StockMovementService } from './services/stock-movement.service';
+import { SubscriptionService } from './services/subscription.service';
 import { TagService } from './services/tag.service';
 import { TaxCategoryService } from './services/tax-category.service';
 import { TaxRateService } from './services/tax-rate.service';
@@ -110,6 +112,7 @@ const services = [
     StockLevelService,
     StockLocationService,
     StockMovementService,
+    SubscriptionService,
     TagService,
     TaxCategoryService,
     TaxRateService,
@@ -145,6 +148,7 @@ const helpers = [
     EntityDuplicatorService,
     FacetValueChecker,
     SettingsStoreService,
+    OrderUpdatedPublisher,
 ];
 
 /**

@@ -1,0 +1,384 @@
+---
+title: 'GraphQL Subscriptions'
+metaTitle: "GraphQL Subscriptions - Real-time Updates in Vendure"
+metaDescription: "How to enable GraphQL subscriptions over WebSocket in Vendure and expose EventBus events to Admin API and Shop API clients."
+---
+
+GraphQL subscriptions let a client keep a WebSocket connection open and receive data as soon as
+something happens on the server, rather than polling for it. A typical use is a live-updating
+order view in an admin dashboard.
+
+In Vendure, a subscription exposes [EventBus](/guides/developer-guide/events/) events to API
+clients.
+
+Subscriptions are **opt-in**. Until you enable them, no WebSocket endpoint exists at all:
+
+```ts title="src/vendure-config.ts"
+import { VendureConfig } from '@vendure/core';
+
+export const config: VendureConfig = {
+    apiOptions: {
+        // ...
+        // highlight-start
+        subscriptions: {
+            enabled: true,
+        },
+        // highlight-end
+    },
+    // ...
+};
+```
+
+The WebSocket endpoint uses the same path as the corresponding GraphQL API, so with the default
+configuration they are `ws://localhost:3000/admin-api` and `ws://localhost:3000/shop-api`. They
+speak the [graphql-transport-ws protocol](https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md),
+which is what all current GraphQL clients (Apollo Client, urql, `graphql-ws`, GraphiQL) use.
+
+:::info
+Only `subscription` operations are accepted over the WebSocket connection, and subscription
+operations are rejected over http. Queries and mutations sent over a WebSocket would otherwise
+bypass CSRF prevention as well as the Apollo Server plugins which act on the http response.
+:::
+
+## The built-in `orderUpdated` subscription
+
+The Admin API includes one subscription out of the box, which emits whenever an Order in the
+active Channel changes:
+
+```graphql
+subscription {
+    orderUpdated {
+        type
+        orderId
+        fromState
+        toState
+        order {
+            id
+            code
+            state
+            totalWithTax
+        }
+    }
+}
+```
+
+It requires the `ReadOrder` permission, and `orderUpdated(orderId: ID)` narrows it to a single
+Order.
+
+## Defining your own subscription
+
+A subscription resolver is written like any other resolver - `@Allow()`, `@Ctx()` and `@Args()`
+work exactly as they do for a query - and returns one of the two methods of
+[`SubscriptionService`](/reference/typescript-api/services/subscription-service/):
+
+| | `fromEvent(ctx, fieldName, EventType, mapFn)` | `publish(ctx, fieldName, payload)` + `fromPublished(ctx, fieldName)` |
+| --- | --- | --- |
+| Source | the in-process [EventBus](/guides/developer-guide/events/) | anything, including the worker |
+| Reaches other instances | no | yes, with a distributed relay strategy |
+| Payload | mapped from the event, per subscriber | published once, must be JSON-compatible |
+| Use it for | a single-instance deployment, or events which only concern the instance they happened on | anything else |
+
+Both yield the payload under the name of the subscription field, so the `@Subscription()`
+decorator needs no `resolve` option.
+
+```ts title="src/plugins/subscriptions/order-state-subscription.resolver.ts"
+import { Args, Resolver, Subscription } from '@nestjs/graphql';
+import {
+    Allow,
+    Ctx,
+    ID,
+    OrderStateTransitionEvent,
+    Permission,
+    RequestContext,
+    SubscriptionService,
+} from '@vendure/core';
+
+export interface OrderStateChangedPayload {
+    orderId: ID;
+    fromState: string;
+    toState: string;
+}
+
+@Resolver()
+export class OrderStateSubscriptionResolver {
+    constructor(private subscriptionService: SubscriptionService) {}
+
+    @Subscription('orderStateChanged')
+    @Allow(Permission.ReadOrder)
+    orderStateChanged(@Args() args: { toState?: string }, @Ctx() ctx: RequestContext) {
+        return this.subscriptionService.fromEvent(
+            ctx,
+            'orderStateChanged',
+            OrderStateTransitionEvent,
+            // returning undefined skips this event
+            event =>
+                !args.toState || event.toState === args.toState
+                    ? { orderId: event.order.id, fromState: event.fromState, toState: event.toState }
+                    : undefined,
+        );
+    }
+}
+```
+
+The schema is extended as for any other API extension:
+
+```ts title="src/plugins/subscriptions/subscriptions.plugin.ts"
+import { PluginCommonModule, VendurePlugin } from '@vendure/core';
+import gql from 'graphql-tag';
+
+import { OrderStateSubscriptionResolver } from './order-state-subscription.resolver';
+
+@VendurePlugin({
+    imports: [PluginCommonModule],
+    adminApiExtensions: {
+        resolvers: [OrderStateSubscriptionResolver],
+        schema: gql`
+            extend type Subscription {
+                orderStateChanged(toState: String): OrderStateChangedPayload!
+            }
+
+            type OrderStateChangedPayload {
+                orderId: ID!
+                fromState: String!
+                toState: String!
+            }
+        `,
+    },
+})
+export class SubscriptionsPlugin {}
+```
+
+### Resolving entities in the payload
+
+Publish ids in the payload and resolve the entity in a field resolver, so that it is loaded with
+the *subscriber's* RequestContext — scoped to their Channel and language, and never leaking an
+entity they are not allowed to see:
+
+```ts
+@Resolver('OrderStateChangedPayload')
+export class OrderStateChangedPayloadResolver {
+    constructor(private orderService: OrderService) {}
+
+    @ResolveField()
+    order(@Ctx() ctx: RequestContext, @Parent() payload: OrderStateChangedPayload) {
+        return this.orderService.findOne(ctx, payload.orderId);
+    }
+}
+```
+
+## Authentication & authorization
+
+Authentication works exactly as it does for an http request, because the same `AuthGuard` runs
+when the client subscribes. A client passes its credentials in the `connectionParams` of the
+`ConnectionInit` message:
+
+```ts
+import { createClient } from 'graphql-ws';
+
+const client = createClient({
+    url: 'ws://localhost:3000/shop-api',
+    connectionParams: {
+        Authorization: `Bearer ${token}`,
+        'vendure-token': channelToken,
+    },
+});
+```
+
+Only `authorization`, the channel token key, the API key header, `accept-language`, `languageCode`
+and `currencyCode` are read from `connectionParams`; anything else is ignored. When
+`authOptions.tokenMethod` includes `'cookie'`, the session cookie sent with the upgrade request is
+used instead: Vendure runs the same `cookie-session` middleware over the upgrade request that it
+runs over an http request.
+
+Permissions are checked when the client subscribes, and the events are filtered to the
+subscriber's Channel. Two things to keep in mind:
+
+-   A subscription ends as soon as the subscriber's session has expired or been invalidated
+    (logout, password change, deletion by an administrator). Permissions, however, are checked
+    once when the client subscribes: a role whose permissions are changed in the meantime takes
+    effect only when the client reconnects.
+-   An `@Allow(Permission.Owner)` subscription is **owner-scoped automatically**: a subscriber
+    only receives what their own session or user caused, and a connection with no session at all
+    is refused (a WebSocket client is never given a new anonymous session, since it has no way of
+    receiving the token). No filtering code is needed:
+
+    ```ts
+    @Subscription('activeOrderUpdated')
+    @Allow(Permission.Owner)
+    activeOrderUpdated(@Ctx() ctx: RequestContext) {
+        return this.subscriptionService.fromEvent(ctx, 'activeOrderUpdated', OrderEvent, event => ({
+            orderId: event.entity.id,
+            type: event.type,
+        }));
+    }
+    ```
+
+    Pass `ownerOnly: false` to opt out, and `restrictToChannel: false` to receive every Channel's
+    payloads, which requires the SuperAdmin permission.
+
+:::warning
+The browser same-origin policy does not apply to WebSocket connections, and the browser attaches
+cookies to a cross-origin connection. Vendure therefore checks the `Origin` header of the upgrade
+request against `apiOptions.cors`. The default `cors: { origin: true }` allows any origin, which
+is fine for development but should be replaced by an explicit list of origins in production.
+:::
+
+## Scaling to multiple instances
+
+Out of the box, a published payload is delivered within a single process. In a horizontally-scaled
+deployment, configure a distributed
+[SubscriptionRelayStrategy](/reference/typescript-api/subscriptions/subscription-relay-strategy/) so
+that a payload published on one instance (or by the worker) reaches subscribers connected to any
+instance:
+
+```ts title="src/vendure-config.ts"
+import { RedisSubscriptionRelayStrategy, VendureConfig } from '@vendure/core';
+
+export const config: VendureConfig = {
+    apiOptions: {
+        subscriptions: {
+            enabled: true,
+            // highlight-start
+            relayStrategy: new RedisSubscriptionRelayStrategy({
+                redisOptions: { host: 'localhost', port: 6379 },
+            }),
+            // highlight-end
+        },
+    },
+    // ...
+};
+```
+
+The Redis strategy requires the `ioredis` package (`npm install ioredis`). The message carries the
+Channel, session and user of the publishing operation, so Channel filtering and owner scoping work
+exactly the same across instances as they do within one.
+
+### Publishing your own payloads
+
+`fromEvent()` reads the local EventBus, so it is instance-local by design. To distribute your own
+subscription, publish to the relay instead and subscribe to the same key:
+
+```ts title="src/plugins/subscriptions/active-order-publisher.ts"
+@Injectable()
+export class ActiveOrderPublisher implements OnApplicationBootstrap {
+    constructor(
+        private eventBus: EventBus,
+        private subscriptionService: SubscriptionService,
+    ) {}
+
+    onApplicationBootstrap() {
+        this.eventBus.ofType(OrderEvent).subscribe(event => {
+            void this.subscriptionService.publish(event.ctx, 'activeOrderUpdated', {
+                orderId: event.entity.id,
+                type: event.type,
+            });
+        });
+    }
+}
+```
+
+```ts title="src/plugins/subscriptions/active-order.resolver.ts"
+@Subscription('activeOrderUpdated')
+@Allow(Permission.Owner)
+activeOrderUpdated(@Ctx() ctx: RequestContext) {
+    // owner scoping is applied automatically; `accept` adds any further filtering
+    return this.subscriptionService.fromPublished<ActiveOrderUpdatedPayload>(ctx, 'activeOrderUpdated');
+}
+```
+
+The payload must be JSON-serializable, since it may cross a process boundary. Publish ids and
+resolve the entities in a field resolver, as above.
+
+The built-in `orderUpdated` subscription is published this way, so it works across instances as
+soon as a distributed strategy is configured.
+
+## Limits & limitations
+
+A single WebSocket connection may hold at most `maxSubscriptionsPerConnection` concurrent
+subscriptions (default **20**), and a single subscribe operation may be at most
+`maxOperationSizeBytes` (default **64 KB**); both are set in `apiOptions.subscriptions`. A
+subscription whose client falls more than **1000 events** behind is failed with a
+`SUBSCRIPTION_BUFFER_OVERFLOW` error rather than buffering without limit; the client should
+refetch its data and subscribe again.
+
+-   With the default `InMemorySubscriptionRelayStrategy`, a client only receives payloads
+    published by the instance it is connected to. Configure a distributed strategy, as above, for
+    a multi-instance deployment.
+-   Subscription messages are delivered at most once, and are neither persisted nor replayed. A
+    client which (re)connects must fetch the current state with a query and then subscribe.
+
+## Subscribing from a client
+
+Any `graphql-transport-ws` client works. With `graphql-ws` directly:
+
+```ts
+import { createClient } from 'graphql-ws';
+
+const client = createClient({
+    url: 'wss://api.example.com/shop-api',
+    connectionParams: () => ({
+        Authorization: `Bearer ${getToken()}`,
+        'vendure-token': channelToken,
+    }),
+});
+
+const unsubscribe = client.subscribe(
+    { query: 'subscription { activeOrderUpdated { orderId order { totalWithTax } } }' },
+    {
+        next: result => console.log(result.data),
+        error: err => console.error(err),
+        complete: () => console.log('done'),
+    },
+);
+```
+
+With Apollo Client, pass the same connection params to `GraphQLWsLink` and split the terminating
+link on the operation type:
+
+```ts
+import { split, HttpLink } from '@apollo/client';
+import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
+import { getMainDefinition } from '@apollo/client/utilities';
+import { createClient } from 'graphql-ws';
+
+const wsLink = new GraphQLWsLink(
+    createClient({ url: 'wss://api.example.com/shop-api', connectionParams: () => ({ ... }) }),
+);
+const link = split(
+    ({ query }) => {
+        const definition = getMainDefinition(query);
+        return definition.kind === 'OperationDefinition' && definition.operation === 'subscription';
+    },
+    wsLink,
+    new HttpLink({ url: 'https://api.example.com/shop-api' }),
+);
+```
+
+Since a subscription delivers changes but not the current state, fetch the state with a query
+first, then subscribe, and refetch if the connection drops.
+
+## Testing subscriptions
+
+`SimpleGraphQLClient` from `@vendure/testing` can open a subscription, using the auth & channel
+token it already holds:
+
+```ts
+const subscription = adminClient.subscribe(gql`
+    subscription {
+        orderUpdated {
+            type
+            orderId
+        }
+    }
+`);
+
+const received: any[] = [];
+void (async () => {
+    for await (const result of subscription) {
+        received.push(result.data);
+    }
+})();
+
+// ... trigger something which publishes an event, then:
+subscription.close();
+```
