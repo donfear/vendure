@@ -1,0 +1,28 @@
+---
+title: "Subscriptions"
+generated: true
+---
+
+
+
+<a name="orderupdated"></a>
+
+## orderUpdated
+
+<GraphQLDoc
+  type="subscription"
+  typeName="orderUpdated"
+  typeLinks={{
+    OrderUpdatedPayload: '/reference/graphql-api/admin/object-types#orderupdatedpayload',
+    ID: '/reference/graphql-api/admin/object-types#id',
+  }}
+>
+{`"""
+Emitted whenever an Order in the active Channel is created, updated, deleted, or transitions
+from one state to another. Requires the \`ReadOrder\` permission. Pass an \`orderId\` to receive
+the events of a single Order only.
+"""
+type Subscription {
+  orderUpdated(orderId: ID): OrderUpdatedPayload!
+}`}
+</GraphQLDoc>
