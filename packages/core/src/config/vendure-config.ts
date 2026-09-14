@@ -63,6 +63,7 @@ import { SettingsStoreFields } from './settings-store/settings-store-types';
 import { ShippingCalculator } from './shipping-method/shipping-calculator';
 import { ShippingEligibilityChecker } from './shipping-method/shipping-eligibility-checker';
 import { ShippingLineAssignmentStrategy } from './shipping-method/shipping-line-assignment-strategy';
+import { SubscriptionRelayStrategy } from './subscriptions/subscription-relay-strategy';
 import { CacheStrategy } from './system/cache-strategy';
 import { ErrorHandlerStrategy } from './system/error-handler-strategy';
 import { HealthCheckStrategy } from './system/health-check-strategy';
@@ -306,6 +307,80 @@ export interface ApiOptions {
      * @since 1.5.0
      */
     introspection?: boolean;
+    /**
+     * @description
+     * Configures the GraphQL subscriptions (WebSocket) transport.
+     *
+     * @example
+     * ```ts
+     * const config: VendureConfig = {
+     *   apiOptions: {
+     *     subscriptions: {
+     *       enabled: true,
+     *     },
+     *   },
+     * };
+     * ```
+     *
+     * @default { enabled: false }
+     * @since 3.8.0
+     */
+    subscriptions?: SubscriptionsOptions;
+}
+
+/**
+ * @description
+ * Options controlling the GraphQL subscriptions (WebSocket) transport.
+ *
+ * @docsCategory configuration
+ * @docsPage ApiOptions
+ * @since 3.8.0
+ */
+export interface SubscriptionsOptions {
+    /**
+     * @description
+     * Whether to serve GraphQL subscriptions over WebSocket. The endpoint uses the same path as
+     * the corresponding GraphQL API, e.g. `ws://localhost:3000/admin-api`, and speaks the
+     * `graphql-transport-ws` protocol. When `false`, no WebSocket endpoint is created and any
+     * `subscription` operation sent over http is rejected during validation.
+     *
+     * A WebSocket upgrade request does not pass through the Express middleware stack, so
+     * `apiOptions.middleware` is not applied to subscriptions; only the session cookie and the
+     * i18n language detection are. The WebSocket server of each API is matched by path prefix, so
+     * neither `adminApiPath` nor `shopApiPath` may be a prefix of the other; the server refuses
+     * to start otherwise.
+     *
+     * @default false
+     */
+    enabled?: boolean;
+    /**
+     * @description
+     * Determines how a published subscription payload reaches the server instances which have
+     * subscribers. The default delivers within a single process; use the
+     * {@link RedisSubscriptionRelayStrategy} for a multi-instance deployment, or when publishing
+     * from the worker process.
+     *
+     * @default new InMemorySubscriptionRelayStrategy()
+     */
+    relayStrategy?: SubscriptionRelayStrategy;
+    /**
+     * @description
+     * The maximum number of concurrent subscriptions a single WebSocket connection may hold. A
+     * subscribe operation beyond this limit is rejected with a `SUBSCRIPTION_LIMIT_EXCEEDED` error.
+     *
+     * @default 20
+     */
+    maxSubscriptionsPerConnection?: number;
+    /**
+     * @description
+     * The maximum size in bytes of a single subscribe operation (query, variables and operation
+     * name). A larger operation is rejected with a `SUBSCRIPTION_OPERATION_TOO_LARGE` error. The
+     * check runs once the message has been received and parsed; the size of a WebSocket message
+     * itself is bounded by the underlying `ws` server, at 100 MiB.
+     *
+     * @default 65536
+     */
+    maxOperationSizeBytes?: number;
 }
 
 /**
@@ -1468,7 +1543,9 @@ export interface VendureConfig {
  * @docsCategory configuration
  */
 export interface RuntimeVendureConfig extends Required<VendureConfig> {
-    apiOptions: Required<ApiOptions>;
+    apiOptions: Required<Omit<ApiOptions, 'subscriptions'>> & {
+        subscriptions: Required<SubscriptionsOptions>;
+    };
     assetOptions: Required<AssetOptions>;
     authOptions: Required<AuthOptions>;
     catalogOptions: Required<CatalogOptions>;

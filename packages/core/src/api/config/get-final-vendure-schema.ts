@@ -1,6 +1,14 @@
 import { GraphQLTypesLoader } from '@nestjs/graphql';
 import { notNullOrUndefined } from '@vendure/common/lib/shared-utils';
-import { buildSchema, extendSchema, GraphQLSchema, printSchema } from 'graphql/index';
+import {
+    buildSchema,
+    DocumentNode,
+    extendSchema,
+    GraphQLObjectType,
+    GraphQLSchema,
+    Kind,
+    printSchema,
+} from 'graphql/index';
 import path from 'path';
 
 import {
@@ -126,8 +134,38 @@ function extendSchemaWithPluginApiExtensions(
     getPluginAPIExtensions(plugins, apiType)
         .map(e => (typeof e.schema === 'function' ? e.schema(schema) : e.schema))
         .filter(notNullOrUndefined)
-        .forEach(documentNode => (schema = extendSchema(schema, documentNode)));
+        .forEach(documentNode => {
+            schema = extendSchema(withSubscriptionRootType(schema, documentNode), documentNode);
+            schema = withSubscriptionRootType(schema);
+        });
     return schema;
+}
+
+/**
+ * The Shop API has no `Subscription` root type until a plugin adds one. `extend type Subscription`
+ * needs the root to exist beforehand, so an empty one is created; `type Subscription { ... }`
+ * creates the type itself, but `extendSchema` does not know that a type of that name is a root
+ * operation type, so it is promoted afterwards.
+ */
+function withSubscriptionRootType(schema: GraphQLSchema, documentNode?: DocumentNode): GraphQLSchema {
+    if (schema.getSubscriptionType()) {
+        return schema;
+    }
+    const existing = schema.getType('Subscription');
+    if (existing instanceof GraphQLObjectType) {
+        return new GraphQLSchema({ ...schema.toConfig(), subscription: existing });
+    }
+    const extendsSubscription = documentNode?.definitions.some(
+        definition =>
+            definition.kind === Kind.OBJECT_TYPE_EXTENSION && definition.name.value === 'Subscription',
+    );
+    if (!extendsSubscription) {
+        return schema;
+    }
+    return new GraphQLSchema({
+        ...schema.toConfig(),
+        subscription: new GraphQLObjectType({ name: 'Subscription', fields: {} }),
+    });
 }
 
 export function isUsingDefaultEntityIdStrategy(entityIdStrategy: EntityIdStrategy<any>): boolean {

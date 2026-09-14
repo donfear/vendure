@@ -58,6 +58,7 @@ import { cleanOrphanedSettingsStoreTask } from './settings-store/clean-orphaned-
 import { defaultShippingCalculator } from './shipping-method/default-shipping-calculator';
 import { defaultShippingEligibilityChecker } from './shipping-method/default-shipping-eligibility-checker';
 import { DefaultShippingLineAssignmentStrategy } from './shipping-method/default-shipping-line-assignment-strategy';
+import { InMemorySubscriptionRelayStrategy } from './subscriptions/in-memory-subscription-relay-strategy';
 import { InMemoryCacheStrategy } from './system/in-memory-cache-strategy';
 import { NoopInstrumentationStrategy } from './system/noop-instrumentation-strategy';
 import { DefaultOrderTaxCalculationStrategy } from './tax/default-order-tax-calculation-strategy';
@@ -98,6 +99,12 @@ export const defaultConfig: RuntimeVendureConfig = {
         middleware: [],
         introspection: true,
         apolloServerPlugins: [],
+        subscriptions: {
+            enabled: false,
+            relayStrategy: new InMemorySubscriptionRelayStrategy(),
+            maxSubscriptionsPerConnection: 20,
+            maxOperationSizeBytes: 65_536,
+        },
     },
     entityIdStrategy: new AutoIncrementIdStrategy(),
     authOptions: {

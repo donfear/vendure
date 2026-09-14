@@ -61,6 +61,7 @@ export * from './services/shipping-method.service';
 export * from './services/stock-level.service';
 export * from './services/stock-location.service';
 export * from './services/stock-movement.service';
+export * from './services/subscription.service';
 export * from './services/tag.service';
 export * from './services/tax-category.service';
 export * from './services/tax-rate.service';

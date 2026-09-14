@@ -1,5 +1,6 @@
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { DynamicModule } from '@nestjs/common';
+import { HttpAdapterHost } from '@nestjs/core';
 import { GraphQLModule, GraphQLTypesLoader } from '@nestjs/graphql';
 import { GraphQLSchema, printSchema, ValidationContext } from 'graphql';
 
@@ -8,12 +9,18 @@ import { ConfigService } from '../../config/config.service';
 import { I18nModule } from '../../i18n/i18n.module';
 import { I18nService } from '../../i18n/i18n.service';
 import { ServiceModule } from '../../service/service.module';
+import { SessionService } from '../../service/services/session.service';
 import { ApiSharedModule } from '../api-internal-modules';
 import { CustomFieldRelationResolverService } from '../common/custom-field-relation-resolver.service';
 import { IdCodecService } from '../common/id-codec.service';
 import { AssetInterceptorPlugin } from '../middleware/asset-interceptor-plugin';
 import { IdCodecPlugin } from '../middleware/id-codec-plugin';
 import { TranslateErrorsPlugin } from '../middleware/translate-errors-plugin';
+import {
+    assertApiPathsDoNotOverlap,
+    createSubscriptionServerOptions,
+} from '../subscriptions/subscription-server-options';
+import { createNoSubscriptionOverHttpRule } from '../subscriptions/validation-rules';
 
 import { generateResolvers } from './generate-resolvers';
 import { getFinalVendureSchema, isUsingDefaultEntityIdStrategy } from './get-final-vendure-schema';
@@ -43,6 +50,8 @@ export function configureGraphQLModule(
             idCodecService: IdCodecService,
             typesLoader: GraphQLTypesLoader,
             customFieldRelationResolverService: CustomFieldRelationResolverService,
+            httpAdapterHost: HttpAdapterHost,
+            sessionService: SessionService,
         ) => {
             return createGraphQLOptions(
                 i18nService,
@@ -51,6 +60,8 @@ export function configureGraphQLModule(
                 typesLoader,
                 customFieldRelationResolverService,
                 getOptions(configService),
+                httpAdapterHost,
+                sessionService,
             );
         },
         inject: [
@@ -59,6 +70,8 @@ export function configureGraphQLModule(
             IdCodecService,
             GraphQLTypesLoader,
             CustomFieldRelationResolverService,
+            HttpAdapterHost,
+            SessionService,
         ],
         imports: [ConfigModule, I18nModule, ApiSharedModule, ServiceModule],
     });
@@ -71,6 +84,8 @@ async function createGraphQLOptions(
     typesLoader: GraphQLTypesLoader,
     customFieldRelationResolverService: CustomFieldRelationResolverService,
     options: GraphQLApiOptions,
+    httpAdapterHost: HttpAdapterHost,
+    sessionService: SessionService,
 ): Promise<ApolloDriverConfig> {
     const builtSchema = await buildSchemaForApi(options.apiType);
     const resolvers = await generateResolvers(
@@ -80,6 +95,10 @@ async function createGraphQLOptions(
         builtSchema,
     );
 
+    const subscriptionsEnabled = configService.apiOptions.subscriptions.enabled;
+    if (subscriptionsEnabled) {
+        assertApiPathsDoNotOverlap(configService.apiOptions);
+    }
     const apolloServerPlugins = [
         new TranslateErrorsPlugin(i18nService),
         new AssetInterceptorPlugin(configService),
@@ -89,11 +108,10 @@ async function createGraphQLOptions(
     // a non-default EntityIdStrategy. This is a performance optimization
     // that prevents unnecessary traversal of each response when no
     // actual encoding/decoding is taking place.
-    if (
-        !isUsingDefaultEntityIdStrategy(
-            configService.entityOptions.entityIdStrategy ?? configService.entityIdStrategy,
-        )
-    ) {
+    const encodeIds = !isUsingDefaultEntityIdStrategy(
+        configService.entityOptions.entityIdStrategy ?? configService.entityIdStrategy,
+    );
+    if (encodeIds) {
         apolloServerPlugins.unshift(new IdCodecPlugin(idCodecService));
     }
 
@@ -114,8 +132,29 @@ async function createGraphQLOptions(
         // This is handled by the Express cors plugin
         cors: false,
         plugins: apolloServerPlugins,
-        validationRules: options.validationRules,
+        validationRules: [
+            ...options.validationRules,
+            createNoSubscriptionOverHttpRule({ subscriptionsEnabled, apiPath: options.apiPath }),
+        ],
         introspection: configService.apiOptions.introspection ?? true,
+        ...(subscriptionsEnabled
+            ? {
+                  // Nest creates & disposes of the WebSocket server at this API's path.
+                  subscriptions: {
+                      'graphql-ws': createSubscriptionServerOptions({
+                          schema: builtSchema,
+                          apiType: options.apiType,
+                          validationRules: options.validationRules,
+                          encodeIds,
+                          configService,
+                          i18nService,
+                          idCodecService,
+                          sessionService,
+                          expressApp: httpAdapterHost.httpAdapter.getInstance(),
+                      }),
+                  },
+              }
+            : {}),
     } as ApolloDriverConfig;
 
     /**
