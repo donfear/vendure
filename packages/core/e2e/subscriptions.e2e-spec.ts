@@ -24,6 +24,7 @@ import { addItemToOrderDocument } from './graphql/shop-definitions';
 
 import { collectSubscription, delay, triggerUntilReceived } from './utils/collect-subscription';
 import { pollUntil } from './utils/poll-until';
+import { proceedToArrangingPayment } from './utils/test-order-utils';
 
 const TRIGGER_TEST_EVENT = gql`
     mutation TriggerTestEvent($message: String!, $productId: ID!) {
@@ -60,6 +61,45 @@ const CREATE_API_KEY = gql`
         createApiKey(input: $input) {
             apiKey
             entityId
+        }
+    }
+`;
+
+const ORDER_UPDATED_SUBSCRIPTION = gql`
+    subscription OrderUpdated($orderId: ID) {
+        orderUpdated(orderId: $orderId) {
+            type
+            orderId
+            fromState
+            toState
+            order {
+                id
+                state
+            }
+        }
+    }
+`;
+
+const CREATE_DRAFT_ORDER = gql`
+    mutation CreateDraftOrder {
+        createDraftOrder {
+            id
+        }
+    }
+`;
+
+const DELETE_DRAFT_ORDER = gql`
+    mutation DeleteDraftOrder($orderId: ID!) {
+        deleteDraftOrder(orderId: $orderId) {
+            result
+        }
+    }
+`;
+
+const TOUCH_ORDER = gql`
+    mutation TouchOrder($id: ID!) {
+        setOrderCustomFields(input: { id: $id }) {
+            id
         }
     }
 `;
@@ -432,6 +472,67 @@ describe('GraphQL subscriptions', () => {
 
             expect(withinLimit.some(s => s.hasError)).toBe(false);
             expect(beyondLimit.errorText).toContain('SUBSCRIPTION_LIMIT_EXCEEDED');
+        });
+    });
+
+    describe('built-in orderUpdated subscription', () => {
+        it('emits when an Order is created, and when it transitions state', async () => {
+            const subscription = collectSubscription(adminClient.subscribe(ORDER_UPDATED_SUBSCRIPTION));
+            // an Order is created only once, so liveness is proven with a repeatable change first
+            const { createDraftOrder: probe } = await adminClient.query(CREATE_DRAFT_ORDER);
+            await triggerUntilReceived(
+                () => adminClient.query(TOUCH_ORDER, { id: probe.id }),
+                () => subscription.results.length > 0,
+            );
+
+            await shopClient.asUserWithCredentials('hayden.zieme12@hotmail.com', 'test');
+            const { addItemToOrder } = await shopClient.query(addItemToOrderDocument, {
+                productVariantId: 'T_1',
+                quantity: 1,
+            });
+            const orderId = (addItemToOrder as { id: string }).id;
+            await proceedToArrangingPayment(shopClient);
+            await pollUntil(() =>
+                subscription.results.some(
+                    r =>
+                        r.data.orderUpdated.orderId === orderId &&
+                        r.data.orderUpdated.toState === 'ArrangingPayment',
+                ),
+            );
+            subscription.close();
+
+            const payloads = subscription.results
+                .map(r => r.data.orderUpdated)
+                .filter(p => p.orderId === orderId);
+            expect(payloads[0]).toMatchObject({ type: 'CREATED', order: { id: orderId } });
+            const transition = payloads.find(p => p.toState === 'ArrangingPayment');
+            expect(transition).toMatchObject({ type: 'STATE_TRANSITION', fromState: 'AddingItems' });
+            expect(transition.order.state).toBe('ArrangingPayment');
+        });
+
+        it('narrows to a single Order via the orderId argument, and emits its deletion', async () => {
+            const { createDraftOrder: watched } = await adminClient.query(CREATE_DRAFT_ORDER);
+            const subscription = collectSubscription(
+                adminClient.subscribe(ORDER_UPDATED_SUBSCRIPTION, { orderId: watched.id }),
+            );
+            await triggerUntilReceived(
+                () => adminClient.query(TOUCH_ORDER, { id: watched.id }),
+                () => subscription.results.length > 0,
+            );
+
+            // another Order changing must not be delivered
+            const { createDraftOrder: other } = await adminClient.query(CREATE_DRAFT_ORDER);
+            await adminClient.query(DELETE_DRAFT_ORDER, { orderId: other.id });
+            // ... while the watched one is
+            await adminClient.query(DELETE_DRAFT_ORDER, { orderId: watched.id });
+            await pollUntil(() => subscription.results.some(r => r.data.orderUpdated.type === 'DELETED'));
+            subscription.close();
+
+            const payloads = subscription.results.map(r => r.data.orderUpdated);
+            expect(payloads.every(p => p.orderId === watched.id)).toBe(true);
+            expect(payloads.map(p => p.type)).toContain('DELETED');
+            // the deleted Order can no longer be resolved for the subscriber
+            expect(payloads.find(p => p.type === 'DELETED').order).toBeNull();
         });
     });
 

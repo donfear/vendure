@@ -24,6 +24,7 @@ import { OrderMerger } from './helpers/order-merger/order-merger';
 import { OrderModifier } from './helpers/order-modifier/order-modifier';
 import { OrderSplitter } from './helpers/order-splitter/order-splitter';
 import { OrderStateMachine } from './helpers/order-state-machine/order-state-machine';
+import { OrderUpdatedPublisher } from './helpers/order-updated-publisher/order-updated-publisher';
 import { PasswordCipher } from './helpers/password-cipher/password-cipher';
 import { PaymentStateMachine } from './helpers/payment-state-machine/payment-state-machine';
 import { ProductPriceApplicator } from './helpers/product-price-applicator/product-price-applicator';
@@ -147,6 +148,7 @@ const helpers = [
     EntityDuplicatorService,
     FacetValueChecker,
     SettingsStoreService,
+    OrderUpdatedPublisher,
 ];
 
 /**
