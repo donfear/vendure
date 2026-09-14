@@ -1,6 +1,14 @@
 import { GraphQLTypesLoader } from '@nestjs/graphql';
 import { notNullOrUndefined } from '@vendure/common/lib/shared-utils';
-import { buildSchema, extendSchema, GraphQLSchema, printSchema } from 'graphql/index';
+import {
+    buildSchema,
+    DocumentNode,
+    extendSchema,
+    GraphQLObjectType,
+    GraphQLSchema,
+    Kind,
+    printSchema,
+} from 'graphql/index';
 import path from 'path';
 
 import {
@@ -126,8 +134,34 @@ function extendSchemaWithPluginApiExtensions(
     getPluginAPIExtensions(plugins, apiType)
         .map(e => (typeof e.schema === 'function' ? e.schema(schema) : e.schema))
         .filter(notNullOrUndefined)
-        .forEach(documentNode => (schema = extendSchema(schema, documentNode)));
+        .forEach(documentNode => {
+            schema = ensureSubscriptionRootType(schema, documentNode);
+            schema = extendSchema(schema, documentNode);
+        });
     return schema;
+}
+
+/**
+ * `extend type Subscription { ... }` fails when the schema has no Subscription root type, which
+ * the Shop API has not until a plugin adds one. The empty root type is therefore added on demand.
+ */
+function ensureSubscriptionRootType(schema: GraphQLSchema, documentNode: DocumentNode): GraphQLSchema {
+    if (schema.getSubscriptionType()) {
+        return schema;
+    }
+    const definesSubscriptionType = documentNode.definitions.some(
+        definition =>
+            (definition.kind === Kind.OBJECT_TYPE_EXTENSION ||
+                definition.kind === Kind.OBJECT_TYPE_DEFINITION) &&
+            definition.name.value === 'Subscription',
+    );
+    if (!definesSubscriptionType) {
+        return schema;
+    }
+    return new GraphQLSchema({
+        ...schema.toConfig(),
+        subscription: new GraphQLObjectType({ name: 'Subscription', fields: {} }),
+    });
 }
 
 export function isUsingDefaultEntityIdStrategy(entityIdStrategy: EntityIdStrategy<any>): boolean {

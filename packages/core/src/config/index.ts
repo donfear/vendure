@@ -101,6 +101,8 @@ export * from './shipping-method/default-shipping-line-assignment-strategy';
 export * from './shipping-method/shipping-calculator';
 export * from './shipping-method/shipping-eligibility-checker';
 export * from './shipping-method/shipping-line-assignment-strategy';
+export * from './subscriptions/in-memory-subscription-relay-strategy';
+export * from './subscriptions/subscription-relay-strategy';
 export * from './system/error-handler-strategy';
 export * from './system/health-check-strategy';
 export * from './system/instrumentation-strategy';

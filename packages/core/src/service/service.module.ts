@@ -69,6 +69,7 @@ import { ShippingMethodService } from './services/shipping-method.service';
 import { StockLevelService } from './services/stock-level.service';
 import { StockLocationService } from './services/stock-location.service';
 import { StockMovementService } from './services/stock-movement.service';
+import { SubscriptionService } from './services/subscription.service';
 import { TagService } from './services/tag.service';
 import { TaxCategoryService } from './services/tax-category.service';
 import { TaxRateService } from './services/tax-rate.service';
@@ -110,6 +111,7 @@ const services = [
     StockLevelService,
     StockLocationService,
     StockMovementService,
+    SubscriptionService,
     TagService,
     TaxCategoryService,
     TaxRateService,

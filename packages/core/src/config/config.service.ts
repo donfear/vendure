@@ -8,7 +8,6 @@ import { EntityIdStrategy } from './entity/entity-id-strategy';
 import { Logger, VendureLogger } from './logger/vendure-logger';
 import { SettingsStoreFields } from './settings-store/settings-store-types';
 import {
-    ApiOptions,
     AssetOptions,
     CatalogOptions,
     EntityOptions,
@@ -38,7 +37,7 @@ export class ConfigService implements VendureConfig {
         }
     }
 
-    get apiOptions(): Required<ApiOptions> {
+    get apiOptions(): RuntimeVendureConfig['apiOptions'] {
         return this.activeConfig.apiOptions;
     }
 
