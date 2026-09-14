@@ -13,6 +13,7 @@ import { CustomFieldRelationService } from './helpers/custom-field-relation/cust
 import { CustomerChannelAssignmentService } from './helpers/customer-channel-assignment/customer-channel-assignment.service';
 import { EntityDuplicatorService } from './helpers/entity-duplicator/entity-duplicator.service';
 import { EntityHydrator } from './helpers/entity-hydrator/entity-hydrator.service';
+import { OrderUpdatedPublisher } from './helpers/order-updated-publisher/order-updated-publisher';
 import { EntitySlugService } from './helpers/entity-slug.service';
 import { ExternalAuthenticationService } from './helpers/external-authentication/external-authentication.service';
 import { FacetValueChecker } from './helpers/facet-value-checker/facet-value-checker';
@@ -147,6 +148,7 @@ const helpers = [
     EntityDuplicatorService,
     FacetValueChecker,
     SettingsStoreService,
+    OrderUpdatedPublisher,
 ];
 
 /**
