@@ -10,6 +10,7 @@ import { PermissionDefinition } from '../common/permission-definition';
 import { JobBufferStorageStrategy } from '../job-queue/job-buffer/job-buffer-storage-strategy';
 import { ScheduledTask } from '../scheduler/scheduled-task';
 import { SchedulerStrategy } from '../scheduler/scheduler-strategy';
+import { SubscriptionRelayStrategy } from '../subscription/subscription-relay-strategy';
 
 import { ApiKeyStrategy } from './api-key-strategy/api-key-strategy';
 import { AssetImportStrategy } from './asset-import-strategy/asset-import-strategy';
@@ -334,6 +335,82 @@ export interface ApiOptions {
          */
         requiredFieldValidation?: boolean;
     };
+    /**
+     * @description
+     * Enables GraphQL subscriptions. They are served over WebSocket at the same path as the
+     * Admin API and Shop API, using the `graphql-transport-ws` protocol of
+     * [graphql-ws](https://github.com/enisdenjo/graphql-ws).
+     *
+     * Vendure defines no subscriptions of its own. A plugin adds them with `extend type Subscription`
+     * and a `@Subscription()` resolver, which supports `@Allow()` and `@Ctx()` like any other resolver,
+     * and which can return the results of an {@link EventSubscription}. The resolver is called once,
+     * when a client subscribes, and keeps the RequestContext it was called with. The fields of each
+     * further result are resolved with a new copy of that RequestContext, which is passed to
+     * `EntityAccessControlStrategy.prepareAccessControl()` when the previous result is sent.
+     * Before a result is sent, the session is looked up again, and the subscription ends with a
+     * `FORBIDDEN` error if the session no longer exists (e.g. after logging out) or any of its permissions
+     * have been revoked. A subscription which requires `Permission.Owner` is refused to a client without
+     * a session, since the token of a new session could not be returned to it.
+     *
+     * The session token, API key and Channel token are passed as connection params, named like the HTTP
+     * headers `Authorization`, `authOptions.apiKeyHeaderKey` and `apiOptions.channelTokenKey`, e.g.
+     * `{ Authorization: 'Bearer <token>' }`. Query params such as `languageCode` are read from the
+     * WebSocket URL. Cookies are not read, since WebSocket connections are not protected by CORS, so
+     * `authOptions.tokenMethod` must include `'bearer'` or `'api-key'`.
+     *
+     * :::info
+     * - Only subscription operations are accepted over WebSocket, and subscription operations are not
+     *   accepted over HTTP.
+     * - The connection params are held to the size limit of HTTP headers (16 KiB by default), and each
+     *   operation to the default size limit of JSON bodies (100 KiB). A WebSocket message itself may be
+     *   up to 100 MiB.
+     * - The `apolloServerPlugins` and `middleware` do not apply to subscriptions, so neither do the query
+     *   complexity limit and the hiding of field suggestions of the `HardenPlugin`.
+     * - The WebSocket server of each API is matched by the start of its path, so neither API path may
+     *   start with the other.
+     * - Every request with an `Upgrade` header is handed to the WebSocket servers, so a request which
+     *   asks to upgrade to another protocol is not served. For example, Java's `HttpClient` asks to
+     *   upgrade to `h2c` over plain HTTP by default. On Node.js 22.21, 24.9 or later, the server can pass
+     *   on only WebSocket upgrades, as in the second example below. On older versions, such a client has
+     *   to be set to HTTP/1.1.
+     * :::
+     *
+     * @example
+     * ```ts
+     * const config: VendureConfig = {
+     *   apiOptions: {
+     *     subscriptions: true,
+     *   },
+     * };
+     * ```
+     *
+     * @example
+     * ```ts
+     * import { IncomingMessage } from 'http';
+     *
+     * bootstrap(config, {
+     *   onBeforeAppListen: app => {
+     *     app.getHttpServer().shouldUpgradeCallback = (req: IncomingMessage) =>
+     *       req.headers.upgrade?.toLowerCase() === 'websocket';
+     *   },
+     * });
+     * ```
+     *
+     * @default false
+     * @since 3.8.0
+     */
+    subscriptions?: boolean;
+    /**
+     * @description
+     * Relays the results of the {@link EventSubscription}s from the process in which an event is
+     * raised to the clients on every server instance. The default relays within a single process;
+     * with several server instances, or a worker which runs in its own process, use the
+     * {@link RedisSubscriptionRelayStrategy}.
+     *
+     * @default InMemorySubscriptionRelayStrategy
+     * @since 3.8.0
+     */
+    subscriptionRelayStrategy?: SubscriptionRelayStrategy;
 }
 
 /**

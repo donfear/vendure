@@ -216,6 +216,7 @@ export class ConfigModule implements OnApplicationBootstrap, OnApplicationShutdo
         const { refundProcess: refundProcess } = this.configService.paymentOptions;
         const { cacheStrategy, instrumentationStrategy, encryptionStrategy, secretAccessStrategy } =
             this.configService.systemOptions;
+        const { subscriptionRelayStrategy } = this.configService.apiOptions;
         const entityIdStrategy = entityIdStrategyCurrent ?? entityIdStrategyDeprecated;
         return [
             ...adminAuthenticationStrategy,
@@ -271,6 +272,7 @@ export class ConfigModule implements OnApplicationBootstrap, OnApplicationShutdo
             shopApiKeyStrategy,
             entityAccessControlStrategy,
             customerChannelAssignmentStrategy,
+            subscriptionRelayStrategy,
         ];
     }
 

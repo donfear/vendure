@@ -12,6 +12,7 @@ import { InMemoryJobQueueStrategy } from '../job-queue/in-memory-job-queue-strat
 import { InMemoryJobBufferStorageStrategy } from '../job-queue/job-buffer/in-memory-job-buffer-storage-strategy';
 import { NoopSchedulerStrategy } from '../scheduler/noop-scheduler-strategy';
 import { cleanSessionsTask } from '../scheduler/tasks/clean-sessions-task';
+import { InMemorySubscriptionRelayStrategy } from '../subscription/in-memory-subscription-relay-strategy';
 
 import { RandomBytesApiKeyStrategy } from './api-key-strategy/random-bytes-api-key-strategy';
 import { DefaultAssetImportStrategy } from './asset-import-strategy/default-asset-import-strategy';
@@ -104,6 +105,8 @@ export const defaultConfig: RuntimeVendureConfig = {
         inputValidation: {
             requiredFieldValidation: true,
         },
+        subscriptions: false,
+        subscriptionRelayStrategy: new InMemorySubscriptionRelayStrategy(),
     },
     entityIdStrategy: new AutoIncrementIdStrategy(),
     authOptions: {

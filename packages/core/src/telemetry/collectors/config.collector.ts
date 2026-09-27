@@ -11,6 +11,7 @@ import { TelemetryConfig } from '../telemetry.types';
  * activeOrderStrategy also supports an ordered array.
  */
 const CUSTOMIZABLE_STRATEGY_PATHS: Record<string, string[]> = {
+    apiOptions: ['subscriptionRelayStrategy'],
     authOptions: [
         'sessionCacheStrategy',
         'passwordHashingStrategy',
