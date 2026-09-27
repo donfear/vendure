@@ -10,6 +10,7 @@ import { I18nModule } from '../i18n/i18n.module';
 import { JobQueueModule } from '../job-queue/job-queue.module';
 import { ProcessContextModule } from '../process-context/process-context.module';
 import { ServiceModule } from '../service/service.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 
 /**
  * @description
@@ -39,6 +40,7 @@ import { ServiceModule } from '../service/service.module';
         I18nModule,
         ProcessContextModule,
         DataImportModule,
+        SubscriptionModule,
     ],
     exports: [
         EventBusModule,
@@ -51,6 +53,7 @@ import { ServiceModule } from '../service/service.module';
         I18nModule,
         ProcessContextModule,
         DataImportModule,
+        SubscriptionModule,
     ],
 })
 export class PluginCommonModule {}

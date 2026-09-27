@@ -10,6 +10,7 @@ import { PermissionDefinition } from '../common/permission-definition';
 import { JobBufferStorageStrategy } from '../job-queue/job-buffer/job-buffer-storage-strategy';
 import { ScheduledTask } from '../scheduler/scheduled-task';
 import { SchedulerStrategy } from '../scheduler/scheduler-strategy';
+import { SubscriptionRelayStrategy } from '../subscription/subscription-relay-strategy';
 
 import { ApiKeyStrategy } from './api-key-strategy/api-key-strategy';
 import { AssetImportStrategy } from './asset-import-strategy/asset-import-strategy';
@@ -341,10 +342,11 @@ export interface ApiOptions {
      * [graphql-ws](https://github.com/enisdenjo/graphql-ws).
      *
      * Vendure defines no subscriptions of its own. A plugin adds them with `extend type Subscription`
-     * and a `@Subscription()` resolver, which supports `@Allow()` and `@Ctx()` like any other resolver.
-     * The resolver is called once, when a client subscribes, and keeps the RequestContext it was called
-     * with. The fields of each further result are resolved with a new copy of that RequestContext, which
-     * is passed to `EntityAccessControlStrategy.prepareAccessControl()` when the previous result is sent.
+     * and a `@Subscription()` resolver, which supports `@Allow()` and `@Ctx()` like any other resolver,
+     * and which can return the results of an {@link EventSubscription}. The resolver is called once,
+     * when a client subscribes, and keeps the RequestContext it was called with. The fields of each
+     * further result are resolved with a new copy of that RequestContext, which is passed to
+     * `EntityAccessControlStrategy.prepareAccessControl()` when the previous result is sent.
      * Before a result is sent, the session is looked up again, and the subscription ends with a
      * `FORBIDDEN` error if the session no longer exists (e.g. after logging out) or any of its permissions
      * have been revoked. A subscription which requires `Permission.Owner` is refused to a client without
@@ -398,6 +400,17 @@ export interface ApiOptions {
      * @since 3.8.0
      */
     subscriptions?: boolean;
+    /**
+     * @description
+     * Relays the results of the {@link EventSubscription}s from the process in which an event is
+     * raised to the clients on every server instance. The default relays within a single process;
+     * with several server instances, or a worker which runs in its own process, use the
+     * {@link RedisSubscriptionRelayStrategy}.
+     *
+     * @default InMemorySubscriptionRelayStrategy
+     * @since 3.8.0
+     */
+    subscriptionRelayStrategy?: SubscriptionRelayStrategy;
 }
 
 /**

@@ -207,18 +207,11 @@ export const shopApiExtensions = gql`
 `;
 ```
 
-A subscription resolver returns an async iterable, which yields an object for each result, keyed by the name of the subscription. We will create it with the `PubSub` class of the [graphql-subscriptions](https://github.com/apollographql/graphql-subscriptions) package:
-
-```bash
-npm install graphql-subscriptions
-```
-
-The change is published via the [EventBus](/developer-guide/events/), which delivers an event only after its transaction has been committed. The Channel id is part of the trigger name, so that clients only receive the changes made in their own Channel:
+The results of a subscription usually come from a [Vendure event](/developer-guide/events/). Here the banner service publishes an event whenever a banner changes, which the EventBus delivers only after its transaction has been committed:
 
 ```ts title="src/plugins/banner/services/banner.service.ts"
-import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { EventBus, RequestContext, VendureEvent } from '@vendure/core';
-import { PubSub } from 'graphql-subscriptions';
 
 export class BannerTextChangedEvent extends VendureEvent {
     constructor(public ctx: RequestContext, public locationId: string, public text: string) {
@@ -227,51 +220,98 @@ export class BannerTextChangedEvent extends VendureEvent {
 }
 
 @Injectable()
-export class BannerService implements OnApplicationBootstrap {
-    private pubSub = new PubSub();
-
+export class BannerService {
     constructor(private eventBus: EventBus) {}
-
-    onApplicationBootstrap() {
-        this.eventBus.ofType(BannerTextChangedEvent).subscribe(({ ctx, locationId, text }) => { // [!code highlight]
-            this.pubSub.publish(`banner:${ctx.channelId}:${locationId}`, { activeBannerChanged: text }); // [!code highlight]
-        }); // [!code highlight]
-    }
 
     async setBannerText(ctx: RequestContext, locationId: string, text: string) {
         // ... save the banner text
         await this.eventBus.publish(new BannerTextChangedEvent(ctx, locationId, text)); // [!code highlight]
         return text;
     }
+}
+```
 
-    activeBannerChanges(ctx: RequestContext, locationId: string) {
-        return this.pubSub.asyncIterableIterator(`banner:${ctx.channelId}:${locationId}`); // [!code highlight]
+An [`EventSubscription`](/reference/typescript-api/subscriptions/event-subscription) declares which event produces the results of the subscription, and what each result is. A result reaches the clients which subscribed in the Channel of the event, and the `key()` narrows it down to those which subscribed to the same banner location:
+
+```ts title="src/plugins/banner/api/active-banner.subscription.ts"
+import { Injectable } from '@nestjs/common';
+import { EventSubscription } from '@vendure/core';
+import { BannerTextChangedEvent } from '../services/banner.service';
+
+@Injectable()
+export class ActiveBannerSubscription extends EventSubscription<BannerTextChangedEvent> {
+    readonly name = 'activeBannerChanged';
+    readonly event = BannerTextChangedEvent;
+
+    key({ locationId }: BannerTextChangedEvent) {
+        return locationId;
+    }
+
+    payload({ text }: BannerTextChangedEvent) {
+        return text;
     }
 }
 ```
 
-The resolver is defined with the `@Subscription()` decorator, and supports `@Allow()` and `@Ctx()` just like a query:
+The payload is sent as it is to every client which receives the result, so it only holds what all of them may see, such as ids. The fields of a result are then resolved for each client with its `RequestContext`, so a field resolver can turn an id into the entity as that client may see it, and the optional `filter()` method of an `EventSubscription` decides for each client whether it receives a result at all. For example, a subscription to the updates of product variants could deliver them only to the clients which may see one of the variants:
+
+```ts
+async filter(ctx: RequestContext, { variantIds }: { variantIds: ID[] }) {
+    const variants = await this.productVariantService.findByIds(ctx, variantIds);
+    return variants.length > 0;
+}
+```
+
+The resolver is defined with the `@Subscription()` decorator, supports `@Allow()` and `@Ctx()` just like a query, and returns the results of the `EventSubscription`:
 
 ```ts title="src/plugins/banner/api/banner-shop.resolver.ts"
-import { Args, Query, Resolver, Subscription } from '@nestjs/graphql';
+import { Args, Resolver, Subscription } from '@nestjs/graphql';
 import { Ctx, RequestContext } from '@vendure/core';
-import { BannerService } from '../services/banner.service.ts';
+import { ActiveBannerSubscription } from './active-banner.subscription';
 
 @Resolver()
-class BannerShopResolver {
-    constructor(private bannerService: BannerService) {}
+export class BannerShopResolver {
+    constructor(private activeBannerSubscription: ActiveBannerSubscription) {}
 
     // ...
 
     @Subscription() // [!code highlight]
     activeBannerChanged(@Ctx() ctx: RequestContext, @Args() args: { locationId: string; }) { // [!code highlight]
-        return this.bannerService.activeBannerChanges(ctx, args.locationId); // [!code highlight]
+        return this.activeBannerSubscription.listen(ctx, args.locationId); // [!code highlight]
     } // [!code highlight]
 }
 ```
 
+Finally, the `EventSubscription` is listed in the providers of the plugin:
+
+```ts title="src/plugins/banner/banner.plugin.ts"
+@VendurePlugin({
+    imports: [PluginCommonModule],
+    providers: [BannerService, ActiveBannerSubscription], // [!code highlight]
+    shopApiExtensions: {
+        schema: shopApiExtensions,
+        resolvers: [BannerShopResolver],
+    },
+})
+export class BannerPlugin {}
+```
+
 :::info
-The `PubSub` class only delivers events within a single process. If you run more than one server instance, or publish events from the worker, use an implementation backed by a message broker, such as [graphql-redis-subscriptions](https://github.com/davidyaha/graphql-redis-subscriptions).
+By default, the results are relayed within the process in which the event is raised. If you run more than one server instance, or the worker in its own process, relay them through Redis with the [`RedisSubscriptionRelayStrategy`](/reference/typescript-api/subscriptions/redis-subscription-relay-strategy):
+
+```ts title="src/vendure-config.ts"
+import { RedisSubscriptionRelayStrategy, VendureConfig } from '@vendure/core';
+
+export const config: VendureConfig = {
+    apiOptions: {
+        subscriptions: true,
+        subscriptionRelayStrategy: new RedisSubscriptionRelayStrategy({ // [!code highlight]
+            redisOptions: { host: 'localhost', port: 6379 }, // [!code highlight]
+        }), // [!code highlight]
+    },
+    // ...
+};
+```
 :::
 
 Clients connect to the URL of the API with a GraphQL over WebSocket client such as [graphql-ws](https://github.com/enisdenjo/graphql-ws), and pass the session token and the Channel token as connection params. Cookies are not read over WebSocket, so a client authenticates with a [bearer token](/storefront/connect-api/#bearer-token-sessions) or an API key, which `authOptions.tokenMethod` must allow:

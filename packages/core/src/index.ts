@@ -25,5 +25,6 @@ export * from './plugin/index';
 export * from './process-context/index';
 export * from './scheduler/index';
 export * from './service/index';
+export * from './subscription/index';
 export { VENDURE_VERSION } from './version';
 export * from './worker/index';

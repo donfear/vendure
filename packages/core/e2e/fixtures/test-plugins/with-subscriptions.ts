@@ -1,11 +1,15 @@
-import { Args, Resolver, Subscription } from '@nestjs/graphql';
+import { Injectable } from '@nestjs/common';
+import { Args, Parent, ResolveField, Resolver, Subscription } from '@nestjs/graphql';
 import {
     Allow,
     Ctx,
+    EventSubscription,
     ID,
     Permission,
     PluginCommonModule,
+    ProductEvent,
     ProductService,
+    ProductVariantEvent,
     ProductVariantService,
     RequestContext,
     VendurePlugin,
@@ -131,8 +135,77 @@ export class ProductVariantSubscriptionResolver {
 })
 export class RequestContextSubscriptionPlugin {}
 
+@Injectable()
+export class ProductEventSubscription extends EventSubscription<ProductEvent> {
+    readonly name = 'productEvents';
+    readonly event = ProductEvent;
+
+    payload({ entity, type }: ProductEvent) {
+        return { productId: entity.id, type };
+    }
+}
+
+@Resolver()
+export class ProductEventResolver {
+    constructor(private productEventSubscription: ProductEventSubscription) {}
+
+    @Subscription()
+    @Allow(Permission.ReadCatalog)
+    productEvents(@Ctx() ctx: RequestContext) {
+        return this.productEventSubscription.listen(ctx);
+    }
+}
+
+/**
+ * Delivers the updates of the variants of a product to the clients which may see one of them.
+ */
+@Injectable()
+export class ProductVariantEventSubscription extends EventSubscription<ProductVariantEvent> {
+    readonly name = 'productVariantEvents';
+    readonly event = ProductVariantEvent;
+
+    constructor(private productVariantService: ProductVariantService) {
+        super();
+    }
+
+    key({ entity }: ProductVariantEvent) {
+        return entity[0]?.productId;
+    }
+
+    payload({ entity }: ProductVariantEvent) {
+        return { variantIds: entity.map(variant => variant.id) };
+    }
+
+    async filter(ctx: RequestContext, { variantIds }: { variantIds: ID[] }) {
+        const variants = await this.productVariantService.findByIds(ctx, variantIds);
+        return variants.length > 0;
+    }
+}
+
+@Resolver()
+export class ProductVariantEventResolver {
+    constructor(private productVariantEventSubscription: ProductVariantEventSubscription) {}
+
+    @Subscription()
+    @Allow(Permission.ReadCatalog)
+    productVariantEvents(@Ctx() ctx: RequestContext, @Args() args: { productId: ID }) {
+        return this.productVariantEventSubscription.listen(ctx, args.productId);
+    }
+}
+
+@Resolver('ProductVariantEventResult')
+export class ProductVariantEventResultResolver {
+    constructor(private productVariantService: ProductVariantService) {}
+
+    @ResolveField()
+    variants(@Ctx() ctx: RequestContext, @Parent() result: { variantIds: ID[] }) {
+        return this.productVariantService.findByIds(ctx, result.variantIds);
+    }
+}
+
 @VendurePlugin({
     imports: [PluginCommonModule],
+    providers: [ProductEventSubscription, ProductVariantEventSubscription],
     shopApiExtensions: {
         resolvers: [ProductSubscriptionResolver],
         schema: gql`
@@ -142,10 +215,27 @@ export class RequestContextSubscriptionPlugin {}
         `,
     },
     adminApiExtensions: {
-        resolvers: [ProductVariantSubscriptionResolver],
+        resolvers: [
+            ProductVariantSubscriptionResolver,
+            ProductEventResolver,
+            ProductVariantEventResolver,
+            ProductVariantEventResultResolver,
+        ],
         schema: gql`
+            type ProductEventResult {
+                productId: ID!
+                type: String!
+            }
+
+            type ProductVariantEventResult {
+                variantIds: [ID!]!
+                variants: [ProductVariant!]!
+            }
+
             extend type Subscription {
                 productVariantUpdates(id: ID!): ProductVariant
+                productEvents: ProductEventResult!
+                productVariantEvents(productId: ID!): ProductVariantEventResult!
             }
         `,
     },

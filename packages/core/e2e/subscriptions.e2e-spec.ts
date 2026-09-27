@@ -1,20 +1,22 @@
 import { GraphQLTypesLoader } from '@nestjs/graphql';
 import { CurrencyCode, LanguageCode, Permission } from '@vendure/common/lib/generated-types';
 import { SUPER_ADMIN_USER_IDENTIFIER, SUPER_ADMIN_USER_PASSWORD } from '@vendure/common/lib/shared-constants';
-import { Type } from '@vendure/common/lib/shared-types';
+import { Json, Type } from '@vendure/common/lib/shared-types';
 import {
     defaultConfig,
     DefaultEntityAccessControlStrategy,
     getFinalVendureSchema,
+    Logger,
     mergeConfig,
     ProductVariant,
+    RedisSubscriptionRelayStrategy,
     RequestContext,
     VENDURE_SHOP_API_TYPE_PATHS,
     VendureEntity,
     VendurePlugin,
 } from '@vendure/core';
 import { createTestEnvironment, E2E_DEFAULT_CHANNEL_TOKEN, SimpleGraphQLClient } from '@vendure/testing';
-import { buildSchema, GraphQLError, ValidationRule } from 'graphql';
+import { buildSchema, FormattedExecutionResult, GraphQLError, ValidationRule } from 'graphql';
 import gql from 'graphql-tag';
 import { Client, ClientOptions, createClient } from 'graphql-ws';
 import path from 'path';
@@ -32,12 +34,16 @@ import {
 } from './fixtures/test-plugins/with-subscriptions';
 import { graphql } from './graphql/graphql-admin';
 import {
+    assignProductToChannelDocument,
     createAdministratorDocument,
     createChannelDocument,
+    createProductDocument,
     createRoleDocument,
+    updateProductDocument,
     updateProductVariantsDocument,
     updateRoleDocument,
 } from './graphql/shared-definitions';
+import { pollUntil } from './utils/poll-until';
 
 const REQUEST_CONTEXT = `
     subscription {
@@ -97,6 +103,55 @@ async function collectResults(client: Client, query: string, operationName?: str
         results.push(result);
     }
     return results;
+}
+
+type Results = AsyncIterator<FormattedExecutionResult<Record<string, any>, unknown>>;
+
+/**
+ * Triggers an event until the subscription receives its first result, since the server subscribes
+ * to the results of an EventSubscription asynchronously. More results of the trigger may follow.
+ */
+async function receiveFirstResult(results: Results, trigger: () => Promise<unknown>) {
+    const first = results.next();
+    let settled = false;
+    void first.then(
+        () => (settled = true),
+        () => (settled = true),
+    );
+    await pollUntil(
+        async () => {
+            await trigger();
+            return settled;
+        },
+        { interval: 100 },
+    );
+    return (await first).value;
+}
+
+/**
+ * Returns the next result whose data passes the predicate, skipping the others.
+ */
+async function nextResultWhere(results: Results, predicate: (data: Record<string, any>) => boolean) {
+    for (;;) {
+        const { value } = await results.next();
+        if (!value?.data || predicate(value.data)) {
+            return value;
+        }
+    }
+}
+
+async function receiveProductEvent(url: string, adminClient: SimpleGraphQLClient) {
+    const client = createWebSocketClient(url, {
+        connectionParams: { Authorization: `Bearer ${adminClient.getAuthToken()}` },
+    });
+    try {
+        return await receiveFirstResult(
+            client.iterate({ query: 'subscription { productEvents { productId type } }' }),
+            () => adminClient.query(updateProductDocument, { input: { id: 'T_1', enabled: true } }),
+        );
+    } finally {
+        await client.dispose();
+    }
 }
 
 async function subscribe(url: string, query: string, connectionParams?: Record<string, unknown>) {
@@ -446,6 +501,85 @@ describe('GraphQL subscriptions', () => {
         }
     });
 
+    it('delivers the results of an EventSubscription', async () => {
+        expect(await receiveProductEvent(adminApiUrl, adminClient)).toEqual({
+            data: { productEvents: { productId: 'T_1', type: 'updated' } },
+        });
+    });
+
+    it('delivers the results of an EventSubscription in the Channel of the event', async () => {
+        await adminClient.query(assignProductToChannelDocument, {
+            input: { channelId: 'T_2', productIds: ['T_1'], priceFactor: 1 },
+        });
+        const createProduct = async (channelToken: string, slug: string) => {
+            adminClient.setChannelToken(channelToken);
+            const { createProduct: product } = await adminClient.query(createProductDocument, {
+                input: {
+                    translations: [{ languageCode: LanguageCode.en, name: slug, slug, description: '' }],
+                },
+            });
+            return product.id;
+        };
+        const client = createWebSocketClient(adminApiUrl, {
+            connectionParams: {
+                Authorization: `Bearer ${adminClient.getAuthToken()}`,
+                'vendure-token': 'second-channel-token',
+            },
+        });
+        const results = client.iterate({ query: 'subscription { productEvents { productId type } }' });
+        try {
+            await receiveFirstResult(results, () => {
+                adminClient.setChannelToken('second-channel-token');
+                return adminClient.query(updateProductDocument, { input: { id: 'T_1', enabled: true } });
+            });
+
+            await createProduct(E2E_DEFAULT_CHANNEL_TOKEN, 'in-the-default-channel');
+            const secondChannelProductId = await createProduct(
+                'second-channel-token',
+                'in-the-second-channel',
+            );
+
+            await expect(
+                nextResultWhere(results, data => data.productEvents.type === 'created'),
+            ).resolves.toEqual({
+                data: { productEvents: { productId: secondChannelProductId, type: 'created' } },
+            });
+        } finally {
+            adminClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
+            await client.dispose();
+        }
+    });
+
+    it('delivers a keyed result to the clients whose filter accepts it, and resolves it for each', async () => {
+        const { client, results } = await subscribeAsReader(
+            'subscription { productVariantEvents(productId: "T_1") { variantIds variants { id } } }',
+        );
+        const updateVariants = (...ids: string[]) =>
+            adminClient.query(updateProductVariantsDocument, {
+                input: ids.map(id => ({ id, enabled: true })),
+            });
+        try {
+            // The reader may only see the variant T_1
+            await receiveFirstResult(results, () => updateVariants('T_1'));
+
+            await updateVariants('T_2');
+            await updateVariants('T_2', 'T_1');
+
+            await expect(
+                nextResultWhere(results, data => data.productVariantEvents.variantIds.includes('T_2')),
+            ).resolves.toEqual({
+                data: {
+                    productVariantEvents: {
+                        variantIds: expect.arrayContaining(['T_1', 'T_2']),
+                        variants: [{ id: 'T_1' }],
+                    },
+                },
+            });
+        } finally {
+            await client.dispose();
+        }
+    });
+
     it('applies the EntityAccessControlStrategy to each result', async () => {
         const { client, results } = await subscribeAsReader(
             'subscription { productVariantUpdates(id: "T_1") { product { variants { id } } } }',
@@ -571,6 +705,107 @@ describe('GraphQL subscriptions (disabled)', () => {
                     extensions: { code: 'BAD_REQUEST' },
                 },
             ],
+        });
+    });
+});
+
+describe('GraphQL subscriptions (Redis relay)', async () => {
+    const { default: IORedis } = await import('ioredis');
+    const redisOptions = {
+        host: '127.0.0.1',
+        port: process.env.CI ? +(process.env.E2E_REDIS_PORT || 6379) : 6379,
+    };
+    const probe = new IORedis.Redis({ ...redisOptions, lazyConnect: true, retryStrategy: () => null });
+    const redisAvailable = await probe
+        .on('error', () => undefined)
+        .ping()
+        .then(
+            () => true,
+            () => false,
+        );
+    probe.disconnect();
+
+    describe.skipIf(!redisAvailable)('with Redis', () => {
+        const config = mergeConfig(testConfig(), {
+            apiOptions: {
+                subscriptions: true,
+                subscriptionRelayStrategy: new RedisSubscriptionRelayStrategy({
+                    redisOptions,
+                    namespace: 'vendure-subscriptions-e2e',
+                }),
+            },
+            plugins: [RequestContextSubscriptionPlugin, ProductSubscriptionPlugin],
+        });
+        const { port, adminApiPath } = config.apiOptions;
+        const { server, adminClient } = createTestEnvironment(config);
+
+        beforeAll(async () => {
+            await server.init({
+                initialData,
+                productsCsvPath: path.join(__dirname, 'fixtures/e2e-products-minimal.csv'),
+                customerCount: 1,
+            });
+            await adminClient.asSuperAdmin();
+        }, TEST_SETUP_TIMEOUT_MS);
+
+        afterAll(async () => {
+            await server.destroy();
+        });
+
+        it('relays the results of an EventSubscription through Redis', async () => {
+            expect(await receiveProductEvent(`ws://localhost:${port}/${adminApiPath}`, adminClient)).toEqual({
+                data: { productEvents: { productId: 'T_1', type: 'updated' } },
+            });
+        });
+
+        it('relays the messages of its namespace only', async () => {
+            const relays = ['a', 'b'].map(
+                suffix =>
+                    new RedisSubscriptionRelayStrategy({
+                        redisOptions,
+                        namespace: `vendure-subscriptions-e2e-${suffix}`,
+                    }),
+            );
+            await Promise.all(relays.map(relay => relay.init()));
+            const received: Json[] = [];
+            try {
+                await relays[1].subscribe('topic', message => received.push(message));
+                await relays[0].publish('topic', 'from namespace a');
+                await relays[1].publish('topic', 'from namespace b');
+                await pollUntil(() => received.length > 0);
+
+                expect(received).toEqual(['from namespace b']);
+            } finally {
+                await Promise.all(relays.map(relay => relay.destroy()));
+            }
+        });
+
+        it('logs and skips a message which is not JSON', async () => {
+            const error = vi.spyOn(Logger, 'error');
+            const relay = new RedisSubscriptionRelayStrategy({
+                redisOptions,
+                namespace: 'vendure-subscriptions-e2e',
+            });
+            const publisher = new IORedis.Redis(redisOptions);
+            await relay.init();
+            const received: Json[] = [];
+            try {
+                await relay.subscribe('topic', message => received.push(message));
+                await publisher.publish('vendure-subscriptions-e2e:topic', 'not JSON');
+                await relay.publish('topic', 'JSON');
+                await pollUntil(() => received.length > 0);
+
+                expect(received).toEqual(['JSON']);
+                expect(error).toHaveBeenCalledWith(
+                    expect.stringContaining('JSON'),
+                    'RedisSubscriptionRelayStrategy',
+                    expect.any(String),
+                );
+            } finally {
+                error.mockRestore();
+                publisher.disconnect();
+                await relay.destroy();
+            }
         });
     });
 });
